@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "llm-wiki"
+version = "0.1.0"
+description = "CLI tool for building LLM-powered personal knowledge bases"
+requires-python = ">=3.10"
+license = "MIT"
+dependencies = [
+    "markitdown[all]>=0.1.0",
+    "click>=8.0",
+    "python-frontmatter>=1.0",
+    "rank-bm25>=0.2",
+    "jieba>=0.42",
+]
+
+[project.scripts]
+llm-wiki = "llm_wiki.infrastructure.cli:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/llm_wiki"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/llm_wiki"]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
