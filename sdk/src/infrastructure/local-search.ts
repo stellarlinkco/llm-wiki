@@ -1,16 +1,12 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import MiniSearch from "minisearch";
-import type { IndexedDocument, SearchAdapter, SearchOptions, SearchResult } from "../domain/types.js";
-import { atomicWrite, exists } from "./filesystem.js";
+import MiniSearch, { type AsPlainObject } from "minisearch";
+import type { BundleStore, IndexedDocument, SearchAdapter, SearchOptions, SearchResult } from "../domain/types.js";
 import { extractSnippet, tokenize } from "../application/search.js";
 
 interface PersistedSearchIndex {
   version: 1;
   documents: IndexedDocument[];
-  miniSearch: unknown;
+  miniSearch: AsPlainObject;
 }
-
 interface MiniSearchDocument {
   id: string;
   path: string;
@@ -25,6 +21,7 @@ const miniSearchOptions = {
   fields: ["title", "tags", "content"],
   storeFields: ["path", "title", "type", "content"],
   tokenize,
+  processTerm: (term: string) => term,
   searchOptions: {
     boost: { title: 4, tags: 3, content: 1 },
     prefix: true,
@@ -33,13 +30,13 @@ const miniSearchOptions = {
 };
 
 export class LocalSearchAdapter implements SearchAdapter {
-  constructor(private readonly root: string) {}
+  constructor(private readonly store: BundleStore) {}
 
   async index(documents: IndexedDocument[]): Promise<void> {
     const miniSearch = new MiniSearch<MiniSearchDocument>(miniSearchOptions);
     miniSearch.addAll(documents.map(toMiniSearchDocument));
     const payload: PersistedSearchIndex = { version: 1, documents, miniSearch: miniSearch.toJSON() };
-    await atomicWrite(this.indexPath(), JSON.stringify(payload, null, 2));
+    await this.store.write(".llm-wiki/search-index.json", JSON.stringify(payload, null, 2));
   }
 
   async search(query: string, options: SearchOptions = {}): Promise<SearchResult[]> {
@@ -47,10 +44,10 @@ export class LocalSearchAdapter implements SearchAdapter {
     if (queryTokens.length === 0) {
       return [];
     }
-    const raw = await readFile(this.indexPath(), "utf8");
+    const raw = await this.store.read(".llm-wiki/search-index.json");
     const payload = JSON.parse(raw) as PersistedSearchIndex;
     const documentsByPath = new Map(payload.documents.map((doc) => [doc.path, doc]));
-    const miniSearch = MiniSearch.loadJSON<MiniSearchDocument>(JSON.stringify(payload.miniSearch), miniSearchOptions);
+    const miniSearch = MiniSearch.loadJS<MiniSearchDocument>(payload.miniSearch, miniSearchOptions);
     const results = miniSearch.search(query).slice(0, options.limit ?? 10).map((result) => {
       const path = String(result.path);
       const doc = documentsByPath.get(path);
@@ -67,11 +64,7 @@ export class LocalSearchAdapter implements SearchAdapter {
   }
 
   async exists(): Promise<boolean> {
-    return await exists(this.indexPath());
-  }
-
-  private indexPath(): string {
-    return join(this.root, ".llm-wiki", "search-index.json");
+    return await this.store.exists(".llm-wiki/search-index.json");
   }
 }
 

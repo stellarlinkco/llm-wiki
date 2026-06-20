@@ -24,23 +24,6 @@ function hanNgrams(value: string): string[] {
   return tokens;
 }
 
-export function scoreDocument(queryTokens: string[], documentTokens: string[]): number {
-  if (documentTokens.length === 0) {
-    return 0;
-  }
-  const counts = new Map<string, number>();
-  for (const token of documentTokens) {
-    counts.set(token, (counts.get(token) ?? 0) + 1);
-  }
-  let score = 0;
-  for (const token of new Set(queryTokens)) {
-    const count = counts.get(token) ?? 0;
-    if (count > 0) {
-      score += 10 + Math.min(count, 3);
-    }
-  }
-  return score;
-}
 
 export function extractSnippet(content: string, queryTokens: string[]): string {
   const plain = content.replace(/---[\s\S]*?---/, "").replace(/\s+/g, " ").trim();
