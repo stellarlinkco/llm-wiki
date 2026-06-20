@@ -22,6 +22,14 @@ function binaryBuffer(data: Uint8Array): Buffer {
   return Buffer.isBuffer(data) ? data : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
 }
 
+async function destroyPdfParser(parser: PdfParser | undefined): Promise<void> {
+  try {
+    await parser?.destroy();
+  } catch {
+    // Parser cleanup is best-effort; it must not replace a successful parse result or the parser's source-aware error.
+  }
+}
+
 export class PdfSourceParser implements FormatParser {
   readonly name = "pdf";
 
@@ -58,16 +66,15 @@ export class PdfSourceParser implements FormatParser {
           .find((line) => line !== "") ?? "PDF source";
       return parsedMarkdown(input, this.name, sourceName(input), text, description, { page_count: result.total });
     } catch (error) {
-      if (error instanceof ParserError) {
-        throw error;
-      }
-      throw new ParserError(
-        "PARSE_FAILED",
-        `PDF parsing failed: ${error instanceof Error ? error.message : String(error)}`,
-        sourceContext(input),
-      );
+      throw error instanceof ParserError
+        ? error
+        : new ParserError(
+            "PARSE_FAILED",
+            `PDF parsing failed: ${error instanceof Error ? error.message : String(error)}`,
+            sourceContext(input),
+          );
     } finally {
-      await parser?.destroy();
+      await destroyPdfParser(parser);
     }
   }
 }

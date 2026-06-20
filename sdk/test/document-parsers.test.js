@@ -165,6 +165,102 @@ test("PDF parser construction failures are wrapped with source context", async (
   }
 });
 
+test("anonymous binary buffer identity avoids full-payload base64 copies before parsing", async () => {
+  const pdf = pdfFixture("Anonymous PDF byte identity stays bounded.");
+  const originalFrom = Buffer.from;
+  const copiedInputs = [];
+
+  setPdfParserFactoryForTesting(async () => ({
+    async getText() {
+      return { text: "Anonymous PDF byte identity stays bounded.", total: 1 };
+    },
+    async destroy() {},
+  }));
+
+  Buffer.from = function trackedBufferFrom(value, ...args) {
+    if (value === pdf) {
+      copiedInputs.push(value);
+    }
+    return originalFrom.call(Buffer, value, ...args);
+  };
+
+  try {
+    const root = await tempRoot();
+    const kb = await KnowledgeBase.create({ root });
+    const result = await kb.ingest({
+      path: {
+        kind: "buffer",
+        buffer: pdf,
+        contentType: "application/pdf",
+      },
+    });
+    assert.deepEqual(result.failed, []);
+    assert.equal(result.created.length, 1);
+  } finally {
+    Buffer.from = originalFrom;
+    setPdfParserFactoryForTesting(undefined);
+  }
+
+  assert.deepEqual(copiedInputs, []);
+});
+
+test("PDF parser destroy failures do not override successful parse results", async () => {
+  const content = pdfFixture("Cleanup failure success fixture.");
+  setPdfParserFactoryForTesting(async () => ({
+    async getText() {
+      return { text: "Cleanup failure success fixture.", total: 1 };
+    },
+    async destroy() {
+      throw new Error("destroy unavailable");
+    },
+  }));
+
+  try {
+    const parsed = await new DefaultSourceParser().parse({
+      kind: "buffer",
+      buffer: content,
+      path: "cleanup-success.pdf",
+      contentType: "application/pdf",
+    });
+    assert.match(parsed.body, /Cleanup failure success fixture/);
+  } finally {
+    setPdfParserFactoryForTesting(undefined);
+  }
+});
+
+test("PDF parser destroy failures do not override ParserError outcomes", async () => {
+  const content = pdfFixture("Cleanup failure parser error fixture.");
+  setPdfParserFactoryForTesting(async () => ({
+    async getText() {
+      return { text: "", total: 1 };
+    },
+    async destroy() {
+      throw new Error("destroy unavailable");
+    },
+  }));
+
+  try {
+    await assert.rejects(
+      () =>
+        new DefaultSourceParser().parse({
+          kind: "buffer",
+          buffer: content,
+          path: "cleanup-parser-error.pdf",
+          contentType: "application/pdf",
+        }),
+      (error) => {
+        assert.ok(error instanceof ParserError);
+        assert.equal(error.code, "PDF_TEXT_LAYER_MISSING");
+        assert.equal(error.source.path, "cleanup-parser-error.pdf");
+        assert.equal(error.source.contentType, "application/pdf");
+        return true;
+      },
+    );
+  } finally {
+    setPdfParserFactoryForTesting(undefined);
+  }
+});
+
 test("binary buffer inputs reach PDF and DOCX parsers without SDK full-buffer copies", async () => {
   const pdf = pdfFixture("PDF byte identity stays intact.");
   const docx = docxFixture();

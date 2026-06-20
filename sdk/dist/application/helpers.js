@@ -75,6 +75,9 @@ export function boundedSlug(slug, identity) {
 export function sha256(content) {
     return createHash("sha256").update(content).digest("hex");
 }
+function sha256Bytes(content) {
+    return createHash("sha256").update(content).digest("hex");
+}
 export function toParserInput(input) {
     if (typeof input !== "string") {
         return input.kind === "file" ? { ...input, path: resolve(input.path) } : input;
@@ -97,8 +100,10 @@ export function sourceIdentity(input) {
     if (input.kind === "buffer" && input.path !== undefined) {
         return resolve(input.path);
     }
-    return (input.title ??
-        `${input.kind}:${sha256(input.kind === "text" ? input.text : Buffer.from(input.buffer).toString("base64"))}`);
+    if (input.title !== undefined) {
+        return input.title;
+    }
+    return input.kind === "text" ? `${input.kind}:${sha256(input.text)}` : `${input.kind}:${sha256Bytes(input.buffer)}`;
 }
 export function publicResource(input) {
     if (typeof input === "string") {
