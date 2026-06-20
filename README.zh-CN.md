@@ -192,7 +192,7 @@ SDK 测试按关注面拆分：
 - `test/providers.test.js` — LLM provider 契约与 citation 过滤。
 - `test/validation.test.js` — OKF/frontmatter/link 校验。
 - `test/helpers.js` — 共享 fixtures 和测试 helpers。
-当前 SDK gate：92 个 Node 测试 + TypeScript typecheck。
+当前 SDK gate：93 个 Node 测试 + TypeScript typecheck。
 
 ### CLI
 

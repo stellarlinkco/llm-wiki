@@ -192,7 +192,7 @@ The SDK test suite is split by surface:
 - `test/providers.test.js` — LLM provider contracts and citation filtering.
 - `test/validation.test.js` — OKF/frontmatter/link validation.
 - `test/helpers.js` — shared fixtures and test helpers.
-Current SDK gate: 92 Node tests plus TypeScript typecheck.
+Current SDK gate: 93 Node tests plus TypeScript typecheck.
 
 ### CLI
 

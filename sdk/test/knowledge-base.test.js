@@ -124,6 +124,19 @@ test("search matches Chinese queries without whitespace token boundaries", async
   assert.equal(results[0]?.path, "concepts/core-capabilities.md");
 });
 
+test("search supports MiniSearch prefix and fuzzy product matches", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+  await kb.writeConcept({
+    path: "concepts/products.md",
+    title: "Product Portfolio",
+    body: "DeepResearch and vibeBuilder are StellarLink products.",
+  });
+
+  assert.equal((await kb.search("vibeBuil", { limit: 1 }))[0]?.path, "concepts/products.md");
+  assert.equal((await kb.search("DeepReserch", { limit: 1 }))[0]?.path, "concepts/products.md");
+});
+
 test("writeIndex creates a bundle entry point listing sources and concepts", async () => {
   const root = await tempRoot();
   const sourceRoot = await tempRoot();

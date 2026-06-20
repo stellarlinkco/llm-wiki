@@ -1,8 +1,40 @@
+export interface BundleStore {
+  /** Logical root identifier */
+  readonly root: string;
+
+  /** Initialize bundle structure (sources/, concepts/, references/, .llm-wiki/) */
+  init(): Promise<void>;
+
+  /** Check if a path exists within the bundle */
+  exists(bundleRelPath: string): Promise<boolean>;
+
+  /** Read document content by bundle-relative path */
+  read(bundleRelPath: string): Promise<string>;
+
+  /** Atomically write document content */
+  write(bundleRelPath: string, content: string): Promise<void>;
+
+  /** Write document only if it does not already exist */
+  writeIfMissing(bundleRelPath: string, content: string): Promise<void>;
+
+  /** Ensure a directory exists at the given bundle-relative path */
+  ensureDir(bundleRelPath: string): Promise<void>;
+
+  /** List all .md file paths relative to the bundle root */
+  listMarkdownPaths(): Promise<string[]>;
+
+  /** Export bundle contents to a filesystem directory. Returns copied paths. */
+  exportTo(absDestPath: string, includeCache: boolean): Promise<string[]>;
+
+  /** Convert an absolute or relative path to a bundle-relative path */
+  relativePath(absOrRelPath: string): string;
+}
 export interface KnowledgeBaseOptions {
   root: string;
   llm?: LLMProvider;
   parser?: SourceParser;
   search?: SearchAdapter;
+  store?: BundleStore;
   metadata?: Record<string, unknown>;
 }
 
@@ -23,14 +55,20 @@ export interface WriteConceptOptions {
   body: string;
   sourcePaths?: string[];
   frontmatter?: Record<string, unknown>;
+  /** Concept type. Defaults to "Concept". Override for domain-specific types. */
+  type?: string;
 }
 
 export interface WriteIndexOptions {
-  title: string;
-  description?: string;
-}
-
 export interface SynthesizeOptions {
+  query: string;
+  instructions: string;
+  limit?: number;
+  /** Custom system prompt. Defaults to generic OKF concept generation prompt. */
+  systemPrompt?: string;
+  /** JSON schema description injected before the system prompt. */
+  outputSchema?: string;
+}
   query: string;
   instructions: string;
   limit?: number;
