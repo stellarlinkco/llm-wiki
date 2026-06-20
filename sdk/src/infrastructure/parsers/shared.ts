@@ -42,10 +42,10 @@ export async function resolveParserInput(input: string | ParserSourceInput): Pro
   if (input.kind === "buffer") {
     const contentType = mediaTypeFromRaw(input.contentType);
     const sourcePath = input.path;
-    const bytes = Buffer.from(input.buffer);
+    const bytes = byteView(input.buffer);
     return {
       kind: "buffer",
-      content: needsTextContent(contentType, sourcePath) ? bytes.toString("utf8") : "",
+      content: needsTextContent(contentType, sourcePath) ? textContent(bytes) : "",
       bytes,
       ...(sourcePath === undefined ? {} : { path: sourcePath }),
       ...(input.contentType === undefined ? {} : { contentType: input.contentType }),
@@ -58,6 +58,14 @@ export async function resolveParserInput(input: string | ParserSourceInput): Pro
     return await fetchUrlInput(input);
   }
   throw new ParserError("UNSUPPORTED_SOURCE", "Unsupported source input.", {});
+}
+
+function byteView(bytes: Uint8Array): Uint8Array {
+  return Buffer.isBuffer(bytes) ? bytes : new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
+
+function textContent(bytes: Uint8Array): string {
+  return Buffer.isBuffer(bytes) ? bytes.toString("utf8") : new TextDecoder().decode(bytes);
 }
 
 export function sourceName(input: ResolvedParserInput): string {

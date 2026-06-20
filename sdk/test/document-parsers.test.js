@@ -22,35 +22,39 @@ import {
   setUrlHostResolverForTesting,
   setUrlRequesterForTesting,
 } from "./helpers.js";
+import { setPdfParserFactoryForTesting } from "../dist/infrastructure/parsers/pdf.js";
 
 test("static URL ingest dispatches HTML, text, JSON, and PDF by fetched content type into searchable sources", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
 
-  await withUrlRequester({
-    "https://public.example/html-source": {
-      contentType: "text/html; charset=utf-8",
-      body: "<!doctype html><html><body><main><h1>Web Launch</h1><p>Falcon web readiness uses customer telemetry.</p></main></body></html>",
+  await withUrlRequester(
+    {
+      "https://public.example/html-source": {
+        contentType: "text/html; charset=utf-8",
+        body: "<!doctype html><html><body><main><h1>Web Launch</h1><p>Falcon web readiness uses customer telemetry.</p></main></body></html>",
+      },
+      "https://public.example/text-source.json": {
+        contentType: "text/plain; charset=utf-8",
+        body: "Plain URL notes describe aurora support handoffs.",
+      },
+      "https://public.example/json-source.txt": {
+        contentType: "application/json; charset=utf-8",
+        body: JSON.stringify({ program: "Orion", owner: "field analytics" }),
+      },
+      "https://public.example/pdf-source": {
+        contentType: "application/pdf",
+        body: pdfFixture("PDF URL text layer mentions nebula onboarding."),
+      },
     },
-    "https://public.example/text-source.json": {
-      contentType: "text/plain; charset=utf-8",
-      body: "Plain URL notes describe aurora support handoffs.",
+    async () => {
+      for (const path of ["/html-source", "/text-source.json", "/json-source.txt", "/pdf-source"]) {
+        const changeSet = await kb.ingest({ path: `https://public.example${path}` });
+        assert.deepEqual(changeSet.failed, []);
+        assert.equal(changeSet.created.length, 1);
+      }
     },
-    "https://public.example/json-source.txt": {
-      contentType: "application/json; charset=utf-8",
-      body: JSON.stringify({ program: "Orion", owner: "field analytics" }),
-    },
-    "https://public.example/pdf-source": {
-      contentType: "application/pdf",
-      body: pdfFixture("PDF URL text layer mentions nebula onboarding."),
-    },
-  }, async () => {
-    for (const path of ["/html-source", "/text-source.json", "/json-source.txt", "/pdf-source"]) {
-      const changeSet = await kb.ingest({ path: `https://public.example${path}` });
-      assert.deepEqual(changeSet.failed, []);
-      assert.equal(changeSet.created.length, 1);
-    }
-  });
+  );
 
   assert.equal((await kb.search("customer telemetry"))[0].path, "sources/html-source.md");
   assert.equal((await kb.search("aurora support"))[0].path, "sources/text-source.md");
@@ -130,6 +134,94 @@ test("PDF without a text layer fails safely and writes no source document", asyn
   assert.equal(changeSet.failed.length, 1);
   assert.match(changeSet.failed[0].error, /PDF_TEXT_LAYER_MISSING/);
   assert.deepEqual(await readdir(join(root, "sources")), []);
+});
+
+test("PDF parser construction failures are wrapped with source context", async () => {
+  const content = pdfFixture("Parser factory failure fixture.");
+  setPdfParserFactoryForTesting(async () => {
+    throw new Error("deferred import unavailable");
+  });
+
+  try {
+    await assert.rejects(
+      () =>
+        new DefaultSourceParser().parse({
+          kind: "buffer",
+          buffer: content,
+          path: "deferred-import.pdf",
+          contentType: "application/pdf",
+        }),
+      (error) => {
+        assert.ok(error instanceof ParserError);
+        assert.equal(error.code, "PARSE_FAILED");
+        assert.match(error.message, /PDF parsing failed: deferred import unavailable/);
+        assert.equal(error.source.path, "deferred-import.pdf");
+        assert.equal(error.source.contentType, "application/pdf");
+        return true;
+      },
+    );
+  } finally {
+    setPdfParserFactoryForTesting(undefined);
+  }
+});
+
+test("binary buffer inputs reach PDF and DOCX parsers without SDK full-buffer copies", async () => {
+  const pdf = pdfFixture("PDF byte identity stays intact.");
+  const docx = docxFixture();
+  const originalFrom = Buffer.from;
+  const copiedInputs = [];
+  let pdfBufferInput;
+  let pdfUint8Input;
+
+  setPdfParserFactoryForTesting(async (data) => {
+    if (Buffer.isBuffer(data)) {
+      pdfBufferInput = data;
+    } else {
+      pdfUint8Input = data;
+    }
+    return {
+      async getText() {
+        return { text: "PDF byte identity stays intact.", total: 1 };
+      },
+      async destroy() {},
+    };
+  });
+
+  Buffer.from = function trackedBufferFrom(value, ...args) {
+    if (value === pdf || value === docx) {
+      copiedInputs.push(value);
+    }
+    return originalFrom.call(Buffer, value, ...args);
+  };
+
+  try {
+    await new DefaultSourceParser().parse({
+      kind: "buffer",
+      buffer: pdf,
+      path: "identity.pdf",
+      contentType: "application/pdf",
+    });
+    const pdfView = new Uint8Array(pdf.buffer, pdf.byteOffset, pdf.byteLength);
+    await new DefaultSourceParser().parse({
+      kind: "buffer",
+      buffer: pdfView,
+      path: "identity-view.pdf",
+      contentType: "application/pdf",
+    });
+    await new DefaultSourceParser().parse({
+      kind: "buffer",
+      buffer: docx,
+      path: "identity.docx",
+      contentType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+  } finally {
+    Buffer.from = originalFrom;
+    setPdfParserFactoryForTesting(undefined);
+  }
+
+  assert.equal(pdfBufferInput, pdf);
+  assert.equal(pdfUint8Input?.buffer, pdf.buffer);
+  assert.deepEqual(copiedInputs, []);
 });
 
 test("image, audio, and video sources fail unsupported without writing source documents", async () => {

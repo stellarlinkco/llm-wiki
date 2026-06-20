@@ -20,7 +20,10 @@ export class DocxSourceParser implements FormatParser {
 
   async parse(input: ResolvedParserInput): Promise<ParsedSource> {
     try {
-      const result = await mammoth.convertToHtml({ buffer: Buffer.from(input.bytes) });
+      const buffer = Buffer.isBuffer(input.bytes)
+        ? input.bytes
+        : Buffer.from(input.bytes.buffer, input.bytes.byteOffset, input.bytes.byteLength);
+      const result = await mammoth.convertToHtml({ buffer });
       const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
       const markdown = turndown.turndown(result.value).trim();
       const warningMessages = result.messages

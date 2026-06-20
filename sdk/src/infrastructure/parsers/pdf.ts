@@ -3,12 +3,23 @@ import type { ParsedSource } from "../../domain/types.js";
 import type { FormatParser, ResolvedParserInput } from "./shared.js";
 import { extension, hasKnownMediaType, mediaType, parsedMarkdown, sourceContext, sourceName } from "./shared.js";
 
-async function createPdfParser(
-  data: Uint8Array,
-): Promise<{ getText(): Promise<{ text: string; total: number }>; destroy(): Promise<void> }> {
+type PdfParser = { getText(): Promise<{ text: string; total: number }>; destroy(): Promise<void> };
+type PdfParserFactory = (data: Uint8Array) => Promise<PdfParser>;
+
+const defaultPdfParserFactory: PdfParserFactory = async (data) => {
   // pdf-parse initializes optional native canvas polyfills at module load; defer it to PDF parsing so root SDK imports work without optional parser-native packages.
   const { PDFParse } = await import("pdf-parse");
-  return new PDFParse({ data: Buffer.from(data) });
+  return new PDFParse({ data: binaryBuffer(data) });
+};
+
+let pdfParserFactory: PdfParserFactory = defaultPdfParserFactory;
+
+export function setPdfParserFactoryForTesting(factory: PdfParserFactory | undefined): void {
+  pdfParserFactory = factory ?? defaultPdfParserFactory;
+}
+
+function binaryBuffer(data: Uint8Array): Buffer {
+  return Buffer.isBuffer(data) ? data : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
 }
 
 export class PdfSourceParser implements FormatParser {
@@ -23,8 +34,9 @@ export class PdfSourceParser implements FormatParser {
   }
 
   async parse(input: ResolvedParserInput): Promise<ParsedSource> {
-    const parser = await createPdfParser(input.bytes);
+    let parser: PdfParser | undefined;
     try {
+      parser = await pdfParserFactory(input.bytes);
       const result = await parser.getText();
       const text = result.text
         .split(/\r?\n/)
@@ -55,7 +67,7 @@ export class PdfSourceParser implements FormatParser {
         sourceContext(input),
       );
     } finally {
-      await parser.destroy();
+      await parser?.destroy();
     }
   }
 }

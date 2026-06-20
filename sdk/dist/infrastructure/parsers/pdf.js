@@ -1,9 +1,16 @@
 import { ParserError } from "../../domain/errors.js";
 import { extension, hasKnownMediaType, mediaType, parsedMarkdown, sourceContext, sourceName } from "./shared.js";
-async function createPdfParser(data) {
+const defaultPdfParserFactory = async (data) => {
     // pdf-parse initializes optional native canvas polyfills at module load; defer it to PDF parsing so root SDK imports work without optional parser-native packages.
     const { PDFParse } = await import("pdf-parse");
-    return new PDFParse({ data: Buffer.from(data) });
+    return new PDFParse({ data: binaryBuffer(data) });
+};
+let pdfParserFactory = defaultPdfParserFactory;
+export function setPdfParserFactoryForTesting(factory) {
+    pdfParserFactory = factory ?? defaultPdfParserFactory;
+}
+function binaryBuffer(data) {
+    return Buffer.isBuffer(data) ? data : Buffer.from(data.buffer, data.byteOffset, data.byteLength);
 }
 export class PdfSourceParser {
     name = "pdf";
@@ -15,8 +22,9 @@ export class PdfSourceParser {
         return extension(input) === ".pdf";
     }
     async parse(input) {
-        const parser = await createPdfParser(input.bytes);
+        let parser;
         try {
+            parser = await pdfParserFactory(input.bytes);
             const result = await parser.getText();
             const text = result.text
                 .split(/\r?\n/)
@@ -40,7 +48,7 @@ export class PdfSourceParser {
             throw new ParserError("PARSE_FAILED", `PDF parsing failed: ${error instanceof Error ? error.message : String(error)}`, sourceContext(input));
         }
         finally {
-            await parser.destroy();
+            await parser?.destroy();
         }
     }
 }

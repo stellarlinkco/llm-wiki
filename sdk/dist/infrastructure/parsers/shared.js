@@ -23,10 +23,10 @@ export async function resolveParserInput(input) {
     if (input.kind === "buffer") {
         const contentType = mediaTypeFromRaw(input.contentType);
         const sourcePath = input.path;
-        const bytes = Buffer.from(input.buffer);
+        const bytes = byteView(input.buffer);
         return {
             kind: "buffer",
-            content: needsTextContent(contentType, sourcePath) ? bytes.toString("utf8") : "",
+            content: needsTextContent(contentType, sourcePath) ? textContent(bytes) : "",
             bytes,
             ...(sourcePath === undefined ? {} : { path: sourcePath }),
             ...(input.contentType === undefined ? {} : { contentType: input.contentType }),
@@ -39,6 +39,12 @@ export async function resolveParserInput(input) {
         return await fetchUrlInput(input);
     }
     throw new ParserError("UNSUPPORTED_SOURCE", "Unsupported source input.", {});
+}
+function byteView(bytes) {
+    return Buffer.isBuffer(bytes) ? bytes : new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+}
+function textContent(bytes) {
+    return Buffer.isBuffer(bytes) ? bytes.toString("utf8") : new TextDecoder().decode(bytes);
 }
 export function sourceName(input) {
     return input.title ?? (input.path === undefined ? (input.url ?? "Untitled Source") : titleFromPath(input.path));
