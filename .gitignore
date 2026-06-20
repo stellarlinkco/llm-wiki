@@ -10,3 +10,4 @@ reports/
 coverage/
 *.tsbuildinfo
 .claude/settings.local.json
+sdk/dist/
