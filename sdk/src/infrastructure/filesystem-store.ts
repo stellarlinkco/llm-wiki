@@ -56,6 +56,8 @@ export class FilesystemBundleStore implements BundleStore {
   }
 
   relativePath(absOrRelPath: string): string {
+    // Already relative? Return as-is.
+    if (!absOrRelPath.startsWith("/")) return absOrRelPath;
     return relative(this.root, absOrRelPath).replaceAll("\\", "/");
   }
 }

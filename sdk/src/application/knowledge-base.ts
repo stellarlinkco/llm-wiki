@@ -72,8 +72,8 @@ export class KnowledgeBase {
   ) {}
 
   static async create(options: KnowledgeBaseOptions): Promise<KnowledgeBase> {
-    const root = resolve(options.root);
-    const store = options.store ?? new FilesystemBundleStore(root);
+    const store = options.store ?? new FilesystemBundleStore(resolve(options.root));
+    const root = store.root;
     await store.init();
     await store.writeIfMissing(
       "index.md",
@@ -84,10 +84,11 @@ export class KnowledgeBase {
   }
 
   static async open(options: KnowledgeBaseOptions): Promise<KnowledgeBase> {
-    const root = resolve(options.root);
-    const store = options.store ?? new FilesystemBundleStore(root);
-    if (!(await store.exists(""))) {
-      try { await stat(root); } catch { throw new ConfigurationError(`Bundle root does not exist: ${root}`); }
+    const store = options.store ?? new FilesystemBundleStore(resolve(options.root));
+    const root = store.root;
+    const hasIndex = await store.exists("index.md");
+    if (!hasIndex) {
+      throw new ConfigurationError(`Bundle root does not exist: ${root}`);
     }
     return new KnowledgeBase(root, options.llm, options.parser ?? new DefaultSourceParser(), options.search ?? new LocalSearchAdapter(store), store);
   }
@@ -365,8 +366,11 @@ export class KnowledgeBase {
 
   async export(options: ExportOptions): Promise<ChangeSet> {
     const changeSet = emptyChangeSet("export");
-    const destinationRelativeToRoot = this.store.relativePath(options.path);
-    if (destinationRelativeToRoot === "" || (!destinationRelativeToRoot.startsWith("..") && destinationRelativeToRoot !== "..")) {
+    const relDest = this.store.relativePath(options.path);
+    // If relativePath gave us back an absolute path, the store can't detect nesting;
+    // treat it as outside the bundle.
+    const canDetect = !relDest.startsWith("/");
+    if (canDetect && (relDest === "" || (!relDest.startsWith("..") && relDest !== ".."))) {
       throw new ConfigurationError("Export destination must not be inside the bundle root.");
     }
     const copied = await this.store.exportTo(options.path, options.includeCache === true);

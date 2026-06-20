@@ -33,15 +33,17 @@ export function conceptsFromSynthesis(value: unknown): WriteConceptOptions[] {
     if (!isRecord(item) || typeof item.path !== "string" || typeof item.title !== "string" || typeof item.body !== "string") {
       throw new ConfigurationError("Each synthesized concept requires path, title, and body.");
     }
-    return {
+    const concept: WriteConceptOptions = {
       path: item.path,
       title: item.title,
-      ...(typeof item.description === "string" ? { description: item.description } : {}),
-      ...(Array.isArray(item.tags) ? { tags: item.tags.map(String) } : {}),
       body: item.body,
-      ...(Array.isArray(item.sourcePaths) ? { sourcePaths: item.sourcePaths.map(String) } : {}),
-      ...(isRecord(item.frontmatter) ? { frontmatter: item.frontmatter } : {}),
     };
+    if (typeof item.description === "string") concept.description = item.description;
+    if (Array.isArray(item.tags)) concept.tags = item.tags.map(String);
+    if (Array.isArray(item.sourcePaths)) concept.sourcePaths = item.sourcePaths.map(String);
+    if (typeof item.type === "string" && item.type.trim() !== "") concept.type = item.type.trim();
+    if (isRecord(item.frontmatter)) concept.frontmatter = item.frontmatter as Record<string, unknown>;
+    return concept;
   });
 }
 
