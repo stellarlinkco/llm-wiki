@@ -27,11 +27,14 @@
     "check": "npm run fmt:check && npm run lint && npm run typecheck && npm test && npm run dead-code && npm run dup-check"
   },
   "lint-staged": {
-    "*.{ts,js}": [
+    "sdk/**/*.{ts,js}": [
       "eslint --fix",
       "prettier --write"
     ],
     "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ],
+    "sdk/**/*.{json,md,yml,yaml}": [
       "prettier --write"
     ]
   },

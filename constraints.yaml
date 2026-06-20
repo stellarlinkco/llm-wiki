@@ -144,7 +144,7 @@ module_boundaries:
     - "domain -> application"
     - "domain -> infrastructure"
     - "application -> infrastructure"
-  enforced_by: "eslint import/no-restricted-paths (eslint.config.mjs)"
+  enforced_by: "eslint import/no-restricted-paths (sdk/eslint.config.mjs)"
 
 # ── Commit Discipline ──────────────────────────────────────────
 commits:

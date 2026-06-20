@@ -51,7 +51,7 @@ LLM Wiki builds persistent, compounding knowledge bases for LLM-assisted work. T
 | Package mgr | npm | — | `package-lock.json` committed |
 | Build | tsc | — | `sdk/tsconfig.json` |
 | Test runner | node:test | — | `node --test` with `node:assert/strict` |
-| Linter | ESLint 9 (flat config) | — | `eslint.config.mjs` |
+| Linter | ESLint 9 (flat config) | — | `sdk/eslint.config.mjs` |
 | Formatter | Prettier | — | `.prettierrc.json` |
 | Dead code | knip | — | `knip.config.ts` |
 | Duplicate code | jscpd | — | `.jscpd.json` |
@@ -117,7 +117,7 @@ sdk/
 | Application | `sdk/src/application/` | domain | infrastructure |
 | Infrastructure | `sdk/src/infrastructure/` | domain, application | — |
 
-Boundaries enforced by `eslint` `import/no-restricted-paths` (eslint.config.mjs).
+Boundaries enforced by `eslint` `import/no-restricted-paths` (`sdk/eslint.config.mjs`).
 
 ## Development Workflow
 
@@ -281,15 +281,15 @@ Every PR must include runtime evidence in the `## Runtime evidence` section:
 | Secret scanning | block | gitleaks (pre-commit) + CI `layer5-secret-scan` | pre-commit + CI |
 | SAST | block | Semgrep (manual — configure at `https://semgrep.dev`) | CI |
 | Conventional commits | block | `commitlint` (`commitlint.config.js`) | commit-msg hook |
-| ESLint (lint + naming convention) | block | `eslint.config.mjs` | pre-commit + CI |
+| ESLint (lint + naming convention) | block | `sdk/eslint.config.mjs` | pre-commit + CI |
 | Prettier (formatting) | block | `.prettierrc.json` | pre-commit + CI |
 | TypeScript strict mode | block | `sdk/tsconfig.json` | CI `just typecheck` |
 | Dead code (knip) | block | `knip.config.ts` | pre-commit + CI |
 | Duplicate code (jscpd) | block | `.jscpd.json` | CI |
 | Coverage ≥ 90% | block | c8 + CI `layer2-unit-tests` | CI |
 | PR diff ≤ 400 lines | block | CI `layer6-diff-size-guard` | CI |
-| Module boundary (no-cross-layer) | block | `eslint.config.mjs` `import/no-restricted-paths` | CI |
-| Circular imports | block | `eslint.config.mjs` `import/no-cycle` | CI |
+| Module boundary (no-cross-layer) | block | `sdk/eslint.config.mjs` `import/no-restricted-paths` | CI |
+| Circular imports | block | `sdk/eslint.config.mjs` `import/no-cycle` | CI |
 | Branch protection (main) | gate | GitHub branch protection rules — run: `gh api repos/{owner}/{repo}/branches/main/protection` | server-side |
 | Required status checks | gate | GitHub branch protection — configure via repo Settings > Branches | server-side |
 | Required PR reviews | gate | GitHub branch protection | server-side |

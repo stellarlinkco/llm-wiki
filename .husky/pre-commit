@@ -1,5 +1,5 @@
 # Code canonicality — naming and scratchpad guard
 bash .git-hooks/check-naming.sh
 
-# Lint+format on changed files (tools in sdk/node_modules)
-cd sdk && npx lint-staged
+# Lint+format on changed files
+PATH="$PWD/sdk/node_modules/.bin:$PATH" npx lint-staged
