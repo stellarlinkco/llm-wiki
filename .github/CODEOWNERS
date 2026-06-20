@@ -1,0 +1,6 @@
+# Critical paths requiring human review for every change.
+# See AGENTS.md § Critical Paths.
+/sdk/src/infrastructure/providers/   @team-leads
+/sdk/src/infrastructure/filesystem.ts @team-leads
+/sdk/src/domain/types.ts             @team-leads
+/sdk/src/index.ts                    @team-leads

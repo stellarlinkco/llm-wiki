@@ -1,0 +1,10 @@
+{
+  "hooks": {
+    "PreWrite": [
+      {
+        "matcher": "**/*",
+        "command": "bash .claude/hooks/pre-write-naming.sh ${CLAUDE_WRITE_PATH}"
+      }
+    ]
+  }
+}

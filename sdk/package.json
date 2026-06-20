@@ -15,7 +15,25 @@
     "build": "tsc -p tsconfig.json",
     "demo:create-kb": "npm run build && node examples/create-knowledge-base.mjs",
     "test": "npm run build && node --test test/*.test.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepare": "husky",
+    "lint": "eslint . --max-warnings 0",
+    "lint:fix": "eslint . --fix",
+    "fmt": "prettier --write 'src/**/*.ts' 'test/**/*.js'",
+    "fmt:check": "prettier --check 'src/**/*.ts' 'test/**/*.js'",
+    "dead-code": "knip --reporter compact",
+    "dup-check": "jscpd",
+    "coverage": "c8 --reporter=text --reporter=lcov --all --src src node --test test/*.test.js",
+    "check": "npm run fmt:check && npm run lint && npm run typecheck && npm test && npm run dead-code && npm run dup-check"
+  },
+  "lint-staged": {
+    "*.{ts,js}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yml,yaml}": [
+      "prettier --write"
+    ]
   },
   "files": [
     "dist"
@@ -24,21 +42,37 @@
     "node": ">=20.19.0"
   },
   "devDependencies": {
+    "@commitlint/cli": "^19.0.0",
+    "@commitlint/config-conventional": "^19.0.0",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/jsdom": "^28.0.3",
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.20.0",
     "@types/turndown": "^5.0.6",
-    "typescript": "^5.5.0"
+    "c8": "^10.0.0",
+    "eslint": "^9.0.0",
+    "eslint-plugin-import": "^2.31.0",
+    "globals": "^16.0.0",
+    "husky": "^9.0.0",
+    "jscpd": "^4.0.0",
+    "knip": "^5.0.0",
+    "lint-staged": "^15.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.0.0"
   },
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
     "@mozilla/readability": "^0.6.0",
+    "better-sqlite3": "^12.11.1",
     "jsdom": "^29.1.1",
     "mammoth": "^1.12.0",
     "minisearch": "^7.2.0",
     "node-pptx-parser": "^1.0.1",
     "openai": "^6.44.0",
     "pdf-parse": "^2.4.5",
+    "pg": "^8.22.0",
     "turndown": "^7.2.4"
   }
 }

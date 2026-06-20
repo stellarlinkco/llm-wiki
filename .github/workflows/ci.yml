@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+jobs:
+  layer1-fast-checks:
+    name: Fast checks (fmt + lint + typecheck)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: sdk/package-lock.json
+      - run: cd sdk && npm ci
+      - run: cd sdk && npm run fmt:check
+      - run: cd sdk && npm run lint
+      - run: cd sdk && npm run typecheck
+
+  layer2-unit-tests:
+    name: Unit tests
+    needs: layer1-fast-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: sdk/package-lock.json
+      - run: cd sdk && npm ci
+      - run: cd sdk && npm test
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        if: success()
+
+  layer4-anti-drift:
+    name: Anti-drift (duplicate + dead code + size + cycles)
+    needs: layer1-fast-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: sdk/package-lock.json
+      - run: cd sdk && npm ci
+      - name: Verify constraints.yaml consistency
+        run: |
+          grep -q 'constraints\.yaml' .git-hooks/check-naming.sh || echo "WARNING: naming guard may hardcode regex"
+      - name: Duplicate code
+        run: cd sdk && npm run dup-check
+      - name: Dead code
+        run: cd sdk && npm run dead-code
+      - name: File size audit
+        run: |
+          cd sdk && npx eslint . --rule 'max-lines: [error, { max: 700, skipBlankLines: true, skipComments: true }]' --rule 'complexity: [error, 10]' --max-warnings 0
+      - name: Circular dependency check
+        run: |
+          cd sdk && npx eslint . --rule 'import/no-cycle: [error, { maxDepth: 1, ignoreExternal: true }]' --max-warnings 0
+
+  layer5-secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  layer6-diff-size-guard:
+    name: PR diff size guard
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Enforce max PR diff lines
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'diff-limit-exempt') }}
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          MAX_DIFF_LINES=400
+          LINES=$(git diff --diff-filter=ACMR --ignore-all-space "$BASE_SHA"...HEAD -- . \
+            ':(exclude)*.lock' ':(exclude)**/package-lock.json' ':(exclude)**/pnpm-lock.yaml' \
+            ':(exclude)**/__snapshots__/**' | grep -c '^[+-][^+-]' || true)
+          echo "Changed lines (excluding lockfiles/snapshots): $LINES (limit: $MAX_DIFF_LINES)"
+          if [ "$LINES" -gt "$MAX_DIFF_LINES" ]; then
+            echo "::error::PR exceeds the ${MAX_DIFF_LINES}-line diff limit. Split it, or add the 'diff-limit-exempt' label with a justification in the PR description."
+            exit 1
+          fi
