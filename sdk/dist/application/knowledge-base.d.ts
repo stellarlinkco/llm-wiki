@@ -1,0 +1,29 @@
+import type { ChangeSet, ConceptDocument, CrawlOptions, ExportOptions, IngestOptions, KnowledgeBaseOptions, ListConceptOptions, QueryAnswer, QueryOptions, SearchOptions, SearchResult, StatusReport, SynthesizeOptions, ValidationReport, WriteConceptOptions, WriteIndexOptions } from "../domain/types.js";
+export declare class KnowledgeBase {
+    private readonly root;
+    private readonly llm;
+    private readonly parser;
+    private readonly searchAdapter;
+    private readonly store;
+    private constructor();
+    static create(options: KnowledgeBaseOptions): Promise<KnowledgeBase>;
+    static open(options: KnowledgeBaseOptions): Promise<KnowledgeBase>;
+    ingest(options: IngestOptions): Promise<ChangeSet>;
+    update(options: IngestOptions): Promise<ChangeSet>;
+    crawl(options: CrawlOptions): Promise<ChangeSet>;
+    writeConcept(options: WriteConceptOptions): Promise<ChangeSet>;
+    writeIndex(options: WriteIndexOptions): Promise<ChangeSet>;
+    synthesize(options: SynthesizeOptions): Promise<ChangeSet>;
+    reindex(): Promise<ChangeSet>;
+    search(query: string, options?: SearchOptions): Promise<SearchResult[]>;
+    query(question: string, options?: QueryOptions): Promise<QueryAnswer>;
+    validate(): Promise<ValidationReport>;
+    status(): Promise<StatusReport>;
+    listConcepts(options?: ListConceptOptions): Promise<ConceptDocument[]>;
+    export(options: ExportOptions): Promise<ChangeSet>;
+    private writeSource;
+    private readConcepts;
+    private sourceOutputPath;
+    private conceptOutputPath;
+    private appendLog;
+}

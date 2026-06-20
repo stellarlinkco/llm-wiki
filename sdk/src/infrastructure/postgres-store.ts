@@ -4,6 +4,17 @@ import type { BundleStore } from "../domain/types.js";
 
 const DEFAULT_TABLE = "okf_documents";
 
+const SAFE_TABLE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function validateTableIdentifier(tableName: string): string {
+  if (!SAFE_TABLE_IDENTIFIER.test(tableName)) {
+    throw new Error(
+      `Unsafe PostgreSQL table identifier '${tableName}'. Use an unquoted identifier such as '${DEFAULT_TABLE}'.`,
+    );
+  }
+  return tableName;
+}
+
 interface PgQueryable {
   query(text: string, params?: unknown[]): Promise<{ rows: unknown[]; rowCount: number | null }>;
 }
@@ -27,7 +38,7 @@ export class PostgresBundleStore implements BundleStore {
     readonly root: string,
     tableName?: string,
   ) {
-    this.table = tableName ?? DEFAULT_TABLE;
+    this.table = validateTableIdentifier(tableName ?? DEFAULT_TABLE);
   }
 
   async init(): Promise<void> {
@@ -44,23 +55,22 @@ export class PostgresBundleStore implements BundleStore {
   }
 
   async exists(bundleRelPath: string): Promise<boolean> {
-    const result = await this.db.query(
-      `SELECT 1 AS ok FROM ${this.table} WHERE bundle_id = $1 AND path = $2 LIMIT 1`,
-      [this.root, bundleRelPath],
-    );
+    const result = await this.db.query(`SELECT 1 AS ok FROM ${this.table} WHERE bundle_id = $1 AND path = $2 LIMIT 1`, [
+      this.root,
+      bundleRelPath,
+    ]);
     return (result.rowCount ?? 0) > 0;
   }
 
   async read(bundleRelPath: string): Promise<string> {
-    const result = await this.db.query(
-      `SELECT content FROM ${this.table} WHERE bundle_id = $1 AND path = $2`,
-      [this.root, bundleRelPath],
-    );
+    const result = await this.db.query(`SELECT content FROM ${this.table} WHERE bundle_id = $1 AND path = $2`, [
+      this.root,
+      bundleRelPath,
+    ]);
     if (result.rowCount === 0 || result.rows.length === 0) {
-      const err: NodeJS.ErrnoException = Object.assign(
-        new Error(`ENOENT: no such document, read '${bundleRelPath}'`),
-        { code: "ENOENT" },
-      );
+      const err: NodeJS.ErrnoException = Object.assign(new Error(`ENOENT: no such document, read '${bundleRelPath}'`), {
+        code: "ENOENT",
+      });
       throw err;
     }
     const row = result.rows[0];
@@ -102,19 +112,20 @@ export class PostgresBundleStore implements BundleStore {
        ORDER BY path`,
       [this.root],
     );
-    return result.rows.map((row) => {
-      if (typeof row === "object" && row !== null && "path" in row) {
-        return String((row as Record<string, unknown>).path);
-      }
-      return "";
-    }).filter(Boolean);
+    return result.rows
+      .map((row) => {
+        if (typeof row === "object" && row !== null && "path" in row) {
+          return String((row as Record<string, unknown>).path);
+        }
+        return "";
+      })
+      .filter(Boolean);
   }
 
   async exportTo(absDestPath: string, _includeCache: boolean): Promise<string[]> {
-    const result = await this.db.query(
-      `SELECT path, content FROM ${this.table} WHERE bundle_id = $1 ORDER BY path`,
-      [this.root],
-    );
+    const result = await this.db.query(`SELECT path, content FROM ${this.table} WHERE bundle_id = $1 ORDER BY path`, [
+      this.root,
+    ]);
     const copied: string[] = [];
     for (const row of result.rows) {
       if (typeof row !== "object" || row === null) continue;

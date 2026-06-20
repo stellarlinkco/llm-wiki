@@ -1,0 +1,10 @@
+export { ConfigurationError, ParserError, ValidationError } from "./domain/errors.js";
+export { KnowledgeBase } from "./application/knowledge-base.js";
+export { LocalSearchAdapter } from "./infrastructure/local-search.js";
+export { DefaultSourceParser } from "./infrastructure/source-parser.js";
+export { CompositeSourceParser } from "./infrastructure/parsers/composite.js";
+export { FilesystemBundleStore } from "./infrastructure/filesystem-store.js";
+export { OpenAIProvider } from "./infrastructure/providers/openai.js";
+export { AnthropicProvider } from "./infrastructure/providers/anthropic.js";
+export { PostgresBundleStore } from "./infrastructure/postgres-store.js";
+export { SqliteBundleStore } from "./infrastructure/sqlite-store.js";

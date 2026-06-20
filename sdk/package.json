@@ -27,7 +27,7 @@
     "check": "npm run fmt:check && npm run lint && npm run typecheck && npm test && npm run dead-code && npm run dup-check"
   },
   "lint-staged": {
-    "sdk/**/*.{ts,js}": [
+    "sdk/{src,test,examples}/**/*.{ts,js}": [
       "eslint --fix",
       "prettier --write"
     ],
@@ -68,7 +68,6 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.105.0",
     "@mozilla/readability": "^0.6.0",
-    "better-sqlite3": "^12.11.1",
     "jsdom": "^29.1.1",
     "mammoth": "^1.12.0",
     "minisearch": "^7.2.0",
@@ -77,5 +76,8 @@
     "pdf-parse": "^2.4.5",
     "pg": "^8.22.0",
     "turndown": "^7.2.4"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^12.11.1"
   }
 }
