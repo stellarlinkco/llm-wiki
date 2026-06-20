@@ -2,6 +2,8 @@
 
 用 LLM 构建持续增长的个人知识库。灵感来自 [Andrej Karpathy 的 LLM Wiki 模式](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)。
 
+
+> OKF (Open Knowledge Format) 是 Google Cloud 发布的开放规范 — [阅读公告](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing)（本地副本：`docs/okf-google-cloud-blog.md`）。
 **不是 RAG，是一本会自动生长的书。** 知识编译一次，持续更新，以复利方式积累。
 
 [English](./README.md)

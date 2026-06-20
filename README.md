@@ -1,5 +1,7 @@
 # LLM Wiki
 
+
+> OKF (Open Knowledge Format) is an open specification formalized by Google Cloud — [read the announcement](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing) (local: `docs/okf-google-cloud-blog.md`).
 Build persistent, compounding personal knowledge bases with LLMs. Inspired by [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f).
 
 **Not RAG — a living book that grows itself.** Knowledge is compiled once, kept current, and compounds over time.
