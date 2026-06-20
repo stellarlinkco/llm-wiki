@@ -42,6 +42,7 @@ import {
 import { LocalSearchAdapter } from "../infrastructure/local-search.js";
 import { DefaultSourceParser } from "../infrastructure/source-parser.js";
 import { fetchUrlInput } from "../infrastructure/parsers/url.js";
+import { FilesystemBundleStore } from "../infrastructure/filesystem-store.js";
 import { tokenize } from "./search.js";
 
 export class KnowledgeBase {
@@ -65,13 +66,13 @@ export class KnowledgeBase {
     await writeIfMissing(join(root, "index.md"), "---\nokf_version: \"0.1\"\n---\n\n# Knowledge Bundle\n\n- [Sources](sources/) - Ingested source documents.\n- [Concepts](concepts/) - Synthesized concepts.\n- [References](references/) - External references.\n");
     await writeIfMissing(join(root, "log.md"), "# Bundle Update Log\n");
 
-    return new KnowledgeBase(root, options.llm, options.parser ?? new DefaultSourceParser(), options.search ?? new LocalSearchAdapter(root));
+    return new KnowledgeBase(root, options.llm, options.parser ?? new DefaultSourceParser(), options.search ?? new LocalSearchAdapter(new FilesystemBundleStore(root)));
   }
 
   static async open(options: KnowledgeBaseOptions): Promise<KnowledgeBase> {
     const root = resolve(options.root);
     await stat(root);
-    return new KnowledgeBase(root, options.llm, options.parser ?? new DefaultSourceParser(), options.search ?? new LocalSearchAdapter(root));
+    return new KnowledgeBase(root, options.llm, options.parser ?? new DefaultSourceParser(), options.search ?? new LocalSearchAdapter(new FilesystemBundleStore(root)));
   }
 
   async ingest(options: IngestOptions): Promise<ChangeSet> {

@@ -1,5 +1,6 @@
 export { ConfigurationError, ParserError, ValidationError } from "./domain/errors.js";
 export type {
+  BundleStore,
   ChangeFailure,
   ChangeSet,
   ChangeWarning,
@@ -37,5 +38,6 @@ export { KnowledgeBase } from "./application/knowledge-base.js";
 export { LocalSearchAdapter } from "./infrastructure/local-search.js";
 export { DefaultSourceParser } from "./infrastructure/source-parser.js";
 export { CompositeSourceParser } from "./infrastructure/parsers/composite.js";
+export { FilesystemBundleStore } from "./infrastructure/filesystem-store.js";
 export { OpenAIProvider } from "./infrastructure/providers/openai.js";
 export { AnthropicProvider } from "./infrastructure/providers/anthropic.js";

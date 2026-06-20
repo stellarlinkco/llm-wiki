@@ -60,6 +60,10 @@ export interface WriteConceptOptions {
 }
 
 export interface WriteIndexOptions {
+  title: string;
+  description?: string;
+}
+
 export interface SynthesizeOptions {
   query: string;
   instructions: string;
@@ -68,10 +72,6 @@ export interface SynthesizeOptions {
   systemPrompt?: string;
   /** JSON schema description injected before the system prompt. */
   outputSchema?: string;
-}
-  query: string;
-  instructions: string;
-  limit?: number;
 }
 
 export interface QueryOptions {
