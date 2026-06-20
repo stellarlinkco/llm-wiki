@@ -287,3 +287,15 @@
 
 ## 2026-06-20
 * **writeIndex**: Updated: index.md
+
+## 2026-06-20
+* **writeConcept**: Created: concepts/vibe-test.md
+
+## 2026-06-20
+* **writeConcept**: Created: concepts/research-test.md
+
+## 2026-06-20
+* **writeConcept**: Updated: concepts/vibe-test.md
+
+## 2026-06-20
+* **writeConcept**: Updated: concepts/research-test.md
