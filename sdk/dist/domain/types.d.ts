@@ -156,7 +156,7 @@ export type ParserSourceInput = {
     metadata?: Record<string, unknown>;
 } | {
     kind: "buffer";
-    buffer: Buffer;
+    buffer: Uint8Array;
     path?: string;
     contentType?: string;
     title?: string;

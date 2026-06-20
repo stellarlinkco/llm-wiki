@@ -4,7 +4,7 @@ export interface ResolvedParserInput {
     path?: string;
     url?: string;
     content: string;
-    bytes: Buffer;
+    bytes: Uint8Array;
     contentType?: string;
     title?: string;
     metadata: Record<string, unknown>;

@@ -150,7 +150,17 @@ export interface ChangeWarning {
 }
 
 export interface ChangeSet {
-  operation: "create" | "crawl" | "ingest" | "update" | "writeConcept" | "writeIndex" | "synthesize" | "reindex" | "validate" | "export";
+  operation:
+    | "create"
+    | "crawl"
+    | "ingest"
+    | "update"
+    | "writeConcept"
+    | "writeIndex"
+    | "synthesize"
+    | "reindex"
+    | "validate"
+    | "export";
   created: string[];
   updated: string[];
   deleted: string[];
@@ -185,7 +195,7 @@ export type ParserSourceInput =
     }
   | {
       kind: "buffer";
-      buffer: Buffer;
+      buffer: Uint8Array;
       path?: string;
       contentType?: string;
       title?: string;

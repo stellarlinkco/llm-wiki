@@ -28,14 +28,19 @@ export async function fetchUrlInput(input) {
     const addresses = await publicAddresses(url, publicUrl);
     const response = await readStaticUrl(new URL(url), addresses[0], publicUrl);
     if (response.status >= 300 && response.status < 400) {
-        throw new ParserError("FETCH_FAILED", "URL redirects are not followed by the default static fetcher.", { url: publicUrl });
+        throw new ParserError("FETCH_FAILED", "URL redirects are not followed by the default static fetcher.", {
+            url: publicUrl,
+        });
     }
     if (response.status < 200 || response.status >= 300) {
         throw new ParserError("FETCH_FAILED", `URL fetch failed with HTTP ${response.status}.`, { url: publicUrl });
     }
     const contentType = response.headers.get("content-type") ?? input.contentType ?? undefined;
     if (response.body.length > MAX_URL_BYTES) {
-        throw new ParserError("PARSE_FAILED", `URL response exceeds ${MAX_URL_BYTES} bytes.`, { url: publicUrl, ...(contentType === undefined ? {} : { contentType }) });
+        throw new ParserError("PARSE_FAILED", `URL response exceeds ${MAX_URL_BYTES} bytes.`, {
+            url: publicUrl,
+            ...(contentType === undefined ? {} : { contentType }),
+        });
     }
     const media = mediaTypeFromRaw(contentType);
     return {
@@ -78,7 +83,9 @@ async function publicAddresses(value, publicUrl) {
         throw new ParserError("FETCH_FAILED", `URL host resolution failed: ${error instanceof Error ? error.message : String(error)}`, { url: publicUrl });
     }
     if (addresses.length === 0 || addresses.some((address) => !isPublicHostname(address))) {
-        throw new ParserError("UNSUPPORTED_SOURCE", "URL source host must resolve to public addresses.", { url: publicUrl });
+        throw new ParserError("UNSUPPORTED_SOURCE", "URL source host must resolve to public addresses.", {
+            url: publicUrl,
+        });
     }
     return addresses;
 }
@@ -121,7 +128,10 @@ async function requestWithValidatedAddress(url, address, publicUrl) {
             const contentLength = response.headers["content-length"];
             if (typeof contentLength === "string" && Number.parseInt(contentLength, 10) > MAX_URL_BYTES) {
                 response.destroy();
-                finish(reject, new ParserError("PARSE_FAILED", `URL response exceeds ${MAX_URL_BYTES} bytes.`, { url: publicUrl, ...contentTypeSource(response) }));
+                finish(reject, new ParserError("PARSE_FAILED", `URL response exceeds ${MAX_URL_BYTES} bytes.`, {
+                    url: publicUrl,
+                    ...contentTypeSource(response),
+                }));
                 return;
             }
             const chunks = [];
@@ -129,7 +139,10 @@ async function requestWithValidatedAddress(url, address, publicUrl) {
             response.on("data", (chunk) => {
                 size += chunk.length;
                 if (size > MAX_URL_BYTES) {
-                    response.destroy(new ParserError("PARSE_FAILED", `URL response exceeds ${MAX_URL_BYTES} bytes.`, { url: publicUrl, ...contentTypeSource(response) }));
+                    response.destroy(new ParserError("PARSE_FAILED", `URL response exceeds ${MAX_URL_BYTES} bytes.`, {
+                        url: publicUrl,
+                        ...contentTypeSource(response),
+                    }));
                     return;
                 }
                 chunks.push(chunk);
@@ -151,7 +164,9 @@ async function requestWithValidatedAddress(url, address, publicUrl) {
         });
         req.on("error", (error) => {
             clearTimeout(deadline);
-            reject(error instanceof ParserError ? error : new ParserError("FETCH_FAILED", `URL fetch failed: ${error.message}`, { url: publicUrl }));
+            reject(error instanceof ParserError
+                ? error
+                : new ParserError("FETCH_FAILED", `URL fetch failed: ${error.message}`, { url: publicUrl }));
         });
         req.end();
     });
@@ -167,7 +182,10 @@ function headerValue(value) {
     return Array.isArray(value) ? value.join(", ") : String(value);
 }
 function decodeText(bytes, contentType) {
-    const charset = contentType?.match(/;\s*charset=([^;]+)/i)?.[1]?.trim().replace(/^["']|["']$/g, "") ?? "utf-8";
+    const charset = contentType
+        ?.match(/;\s*charset=([^;]+)/i)?.[1]
+        ?.trim()
+        .replace(/^["']|["']$/g, "") ?? "utf-8";
     try {
         return new TextDecoder(charset).decode(bytes);
     }
@@ -188,14 +206,10 @@ function ipv4MappedAddress(address) {
         return ipv4MappedSuffix(address.slice("::ffff:".length));
     }
     const hextets = address.split(":");
-    if (hextets.length === 7
-        && hextets.slice(0, 5).every(isZeroHextet)
-        && hextets[5]?.toLowerCase() === "ffff") {
+    if (hextets.length === 7 && hextets.slice(0, 5).every(isZeroHextet) && hextets[5]?.toLowerCase() === "ffff") {
         return ipv4MappedSuffix(hextets[6] ?? "");
     }
-    if (hextets.length === 8
-        && hextets.slice(0, 5).every(isZeroHextet)
-        && hextets[5]?.toLowerCase() === "ffff") {
+    if (hextets.length === 8 && hextets.slice(0, 5).every(isZeroHextet) && hextets[5]?.toLowerCase() === "ffff") {
         return ipv4MappedSuffix(`${hextets[6]}:${hextets[7]}`);
     }
     return null;
@@ -245,32 +259,32 @@ function isPublicHostname(hostname) {
     if (ipVersion === 4) {
         const parts = normalized.split(".").map((part) => Number.parseInt(part, 10));
         const [a, b, c, d] = parts;
-        return parts.length === 4
-            && parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)
-            && !(a === 0
-                || a === 10
-                || a === 127
-                || (a === 100 && b !== undefined && b >= 64 && b <= 127)
-                || (a === 169 && b === 254)
-                || (a === 172 && b !== undefined && b >= 16 && b <= 31)
-                || (a === 192 && b === 0 && c === 0)
-                || (a === 192 && b === 0 && c === 2)
-                || (a === 192 && b === 88 && c === 99)
-                || (a === 192 && b === 168)
-                || (a === 198 && b !== undefined && b >= 18 && b <= 19)
-                || (a === 198 && b === 51 && c === 100)
-                || (a === 203 && b === 0 && c === 113)
-                || (a !== undefined && a >= 224)
-                || (a === 255 && b === 255 && c === 255 && d === 255));
+        return (parts.length === 4 &&
+            parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255) &&
+            !(a === 0 ||
+                a === 10 ||
+                a === 127 ||
+                (a === 100 && b !== undefined && b >= 64 && b <= 127) ||
+                (a === 169 && b === 254) ||
+                (a === 172 && b !== undefined && b >= 16 && b <= 31) ||
+                (a === 192 && b === 0 && c === 0) ||
+                (a === 192 && b === 0 && c === 2) ||
+                (a === 192 && b === 88 && c === 99) ||
+                (a === 192 && b === 168) ||
+                (a === 198 && b !== undefined && b >= 18 && b <= 19) ||
+                (a === 198 && b === 51 && c === 100) ||
+                (a === 203 && b === 0 && c === 113) ||
+                (a !== undefined && a >= 224) ||
+                (a === 255 && b === 255 && c === 255 && d === 255)));
     }
     if (ipVersion === 6) {
         const firstHextet = Number.parseInt(normalized.split(":")[0] ?? "", 16);
-        return !(normalized === "::1"
-            || normalized === "::"
-            || normalized.startsWith("fc")
-            || normalized.startsWith("fd")
-            || normalized.startsWith("ff")
-            || (firstHextet >= 0xfe80 && firstHextet <= 0xfebf));
+        return !(normalized === "::1" ||
+            normalized === "::" ||
+            normalized.startsWith("fc") ||
+            normalized.startsWith("fd") ||
+            normalized.startsWith("ff") ||
+            (firstHextet >= 0xfe80 && firstHextet <= 0xfebf));
     }
     return true;
 }

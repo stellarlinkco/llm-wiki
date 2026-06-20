@@ -4,6 +4,18 @@ import type { BundleStore } from "../domain/types.js";
 
 const DEFAULT_TABLE = "okf_documents";
 
+const SAFE_IDENTIFIER_PART = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+function quoteTableIdentifier(tableName: string): string {
+  const parts = tableName.split(".");
+  if (parts.length === 0 || parts.length > 2 || parts.some((part) => !SAFE_IDENTIFIER_PART.test(part))) {
+    throw new Error(
+      `Unsafe SQLite table identifier '${tableName}'. Use an identifier such as '${DEFAULT_TABLE}' or 'main.${DEFAULT_TABLE}'.`,
+    );
+  }
+  return parts.map((part) => `"${part}"`).join(".");
+}
+
 interface SqliteDatabase {
   exec(sql: string): unknown;
   prepare(sql: string): {
@@ -31,7 +43,7 @@ export class SqliteBundleStore implements BundleStore {
     readonly root: string,
     tableName?: string,
   ) {
-    this.table = tableName ?? DEFAULT_TABLE;
+    this.table = quoteTableIdentifier(tableName ?? DEFAULT_TABLE);
   }
 
   init(): Promise<void> {
@@ -59,10 +71,9 @@ export class SqliteBundleStore implements BundleStore {
       .prepare(`SELECT content FROM ${this.table} WHERE bundle_id = ? AND path = ?`)
       .get(this.root, bundleRelPath);
     if (row === undefined) {
-      const err: NodeJS.ErrnoException = Object.assign(
-        new Error(`ENOENT: no such document, read '${bundleRelPath}'`),
-        { code: "ENOENT" },
-      );
+      const err: NodeJS.ErrnoException = Object.assign(new Error(`ENOENT: no such document, read '${bundleRelPath}'`), {
+        code: "ENOENT",
+      });
       throw err;
     }
     if (typeof row === "object" && row !== null && "content" in row) {

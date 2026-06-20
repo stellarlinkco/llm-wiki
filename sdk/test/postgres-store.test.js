@@ -13,17 +13,26 @@ const FAKE_DB = {
   },
 };
 
-test("PostgresBundleStore rejects unsafe custom table identifiers", () => {
+test("PostgresBundleStore validates and quotes custom table identifiers", async () => {
   assert.doesNotThrow(() => new PostgresBundleStore(FAKE_DB, "tenant://acme/kb"));
   assert.doesNotThrow(() => new PostgresBundleStore(FAKE_DB, "tenant://acme/kb", "okf_documents"));
   assert.throws(
     () => new PostgresBundleStore(FAKE_DB, "tenant://acme/kb", "okf_documents; DROP TABLE users"),
     /Unsafe PostgreSQL table identifier/,
   );
-  assert.throws(
-    () => new PostgresBundleStore(FAKE_DB, "tenant://acme/kb", "tenant.docs"),
-    /Unsafe PostgreSQL table identifier/,
-  );
+
+  const queries = [];
+  const db = {
+    async query(text) {
+      queries.push(text);
+      return { rows: [], rowCount: 0 };
+    },
+  };
+
+  await new PostgresBundleStore(db, "tenant://acme/kb", "select").init();
+  await new PostgresBundleStore(db, "tenant://acme/kb", "tenant.docs").init();
+  assert.match(queries[0], /CREATE TABLE IF NOT EXISTS "select"/);
+  assert.match(queries[1], /CREATE TABLE IF NOT EXISTS "tenant"\."docs"/);
 });
 const PG_URL = process.env.PG_CONNECTION_STRING ?? "postgresql://localhost:5432/llm_wiki_test";
 

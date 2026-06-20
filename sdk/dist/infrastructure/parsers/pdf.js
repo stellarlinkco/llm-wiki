@@ -3,7 +3,7 @@ import { extension, hasKnownMediaType, mediaType, parsedMarkdown, sourceContext,
 async function createPdfParser(data) {
     // pdf-parse initializes optional native canvas polyfills at module load; defer it to PDF parsing so root SDK imports work without optional parser-native packages.
     const { PDFParse } = await import("pdf-parse");
-    return new PDFParse({ data });
+    return new PDFParse({ data: Buffer.from(data) });
 }
 export class PdfSourceParser {
     name = "pdf";

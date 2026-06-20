@@ -1,12 +1,13 @@
 import { join } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 const DEFAULT_TABLE = "okf_documents";
-const SAFE_TABLE_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
-function validateTableIdentifier(tableName) {
-    if (!SAFE_TABLE_IDENTIFIER.test(tableName)) {
-        throw new Error(`Unsafe PostgreSQL table identifier '${tableName}'. Use an unquoted identifier such as '${DEFAULT_TABLE}'.`);
+const SAFE_IDENTIFIER_PART = /^[A-Za-z_][A-Za-z0-9_]*$/;
+function quoteTableIdentifier(tableName) {
+    const parts = tableName.split(".");
+    if (parts.length === 0 || parts.length > 2 || parts.some((part) => !SAFE_IDENTIFIER_PART.test(part))) {
+        throw new Error(`Unsafe PostgreSQL table identifier '${tableName}'. Use an identifier such as '${DEFAULT_TABLE}' or 'schema.${DEFAULT_TABLE}'.`);
     }
-    return tableName;
+    return parts.map((part) => `"${part}"`).join(".");
 }
 /**
  * PostgreSQL-backed {@link BundleStore}.
@@ -26,7 +27,7 @@ export class PostgresBundleStore {
     constructor(db, root, tableName) {
         this.db = db;
         this.root = root;
-        this.table = validateTableIdentifier(tableName ?? DEFAULT_TABLE);
+        this.table = quoteTableIdentifier(tableName ?? DEFAULT_TABLE);
     }
     async init() {
         await this.db.query(`

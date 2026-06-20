@@ -5,7 +5,7 @@ interface StaticUrlResponse {
     headers: {
         get(name: string): string | null;
     };
-    body: Buffer;
+    body: Uint8Array;
 }
 type HostResolver = (hostname: string) => Promise<readonly string[]>;
 type StaticUrlRequester = (url: URL, address: string, publicUrl: string) => Promise<StaticUrlResponse>;

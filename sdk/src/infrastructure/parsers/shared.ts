@@ -9,7 +9,7 @@ export interface ResolvedParserInput {
   path?: string;
   url?: string;
   content: string;
-  bytes: Buffer;
+  bytes: Uint8Array;
   contentType?: string;
   title?: string;
   metadata: Record<string, unknown>;
@@ -42,10 +42,11 @@ export async function resolveParserInput(input: string | ParserSourceInput): Pro
   if (input.kind === "buffer") {
     const contentType = mediaTypeFromRaw(input.contentType);
     const sourcePath = input.path;
+    const bytes = Buffer.from(input.buffer);
     return {
       kind: "buffer",
-      content: needsTextContent(contentType, sourcePath) ? input.buffer.toString("utf8") : "",
-      bytes: input.buffer,
+      content: needsTextContent(contentType, sourcePath) ? bytes.toString("utf8") : "",
+      bytes,
       ...(sourcePath === undefined ? {} : { path: sourcePath }),
       ...(input.contentType === undefined ? {} : { contentType: input.contentType }),
       ...(input.title === undefined ? {} : { title: input.title }),
@@ -60,7 +61,7 @@ export async function resolveParserInput(input: string | ParserSourceInput): Pro
 }
 
 export function sourceName(input: ResolvedParserInput): string {
-  return input.title ?? (input.path === undefined ? input.url ?? "Untitled Source" : titleFromPath(input.path));
+  return input.title ?? (input.path === undefined ? (input.url ?? "Untitled Source") : titleFromPath(input.path));
 }
 
 export function extension(input: ResolvedParserInput): string {
@@ -74,19 +75,21 @@ export function mediaType(input: ResolvedParserInput): string | undefined {
 }
 
 export function hasKnownMediaType(contentType: string | undefined): boolean {
-  return contentType === "text/markdown"
-    || contentType === "text/plain"
-    || contentType === "application/json"
-    || contentType?.endsWith("+json") === true
-    || contentType === "text/html"
-    || contentType === "application/xhtml+xml"
-    || contentType === "application/pdf"
-    || contentType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    || contentType === "application/vnd.openxmlformats-officedocument.presentationml.presentation"
-    || contentType === "image/png"
-    || contentType === "image/jpeg"
-    || contentType === "audio/mpeg"
-    || contentType === "video/mp4";
+  return (
+    contentType === "text/markdown" ||
+    contentType === "text/plain" ||
+    contentType === "application/json" ||
+    contentType?.endsWith("+json") === true ||
+    contentType === "text/html" ||
+    contentType === "application/xhtml+xml" ||
+    contentType === "application/pdf" ||
+    contentType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+    contentType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+    contentType === "image/png" ||
+    contentType === "image/jpeg" ||
+    contentType === "audio/mpeg" ||
+    contentType === "video/mp4"
+  );
 }
 
 export function parserMetadata(input: ResolvedParserInput, parser: string): Record<string, unknown> {
@@ -128,7 +131,12 @@ export function sourceContext(input: ResolvedParserInput): { path?: string; url?
   };
 }
 
-async function fileInput(path: string, metadata: Record<string, unknown>, contentType?: string, title?: string): Promise<ResolvedParserInput> {
+async function fileInput(
+  path: string,
+  metadata: Record<string, unknown>,
+  contentType?: string,
+  title?: string,
+): Promise<ResolvedParserInput> {
   const bytes = await readFile(path);
   const media = mediaTypeFromRaw(contentType);
   return {
@@ -143,16 +151,20 @@ async function fileInput(path: string, metadata: Record<string, unknown>, conten
 }
 
 export function needsTextContent(contentType: string | undefined, sourcePath: string | undefined): boolean {
-  return contentType === "text/markdown"
-    || contentType === "text/plain"
-    || contentType === "application/json"
-    || contentType?.endsWith("+json") === true
-    || contentType === "application/xml"
-    || contentType === "text/xml"
-    || contentType?.endsWith("+xml") === true
-    || contentType === "text/html"
-    || contentType === "application/xhtml+xml"
-    || [".md", ".markdown", ".mdx", ".txt", ".text", ".log", ".csv", ".tsv", ".json", ".xml", ".html", ".htm"].includes(extensionFromPath(sourcePath));
+  return (
+    contentType === "text/markdown" ||
+    contentType === "text/plain" ||
+    contentType === "application/json" ||
+    contentType?.endsWith("+json") === true ||
+    contentType === "application/xml" ||
+    contentType === "text/xml" ||
+    contentType?.endsWith("+xml") === true ||
+    contentType === "text/html" ||
+    contentType === "application/xhtml+xml" ||
+    [".md", ".markdown", ".mdx", ".txt", ".text", ".log", ".csv", ".tsv", ".json", ".xml", ".html", ".htm"].includes(
+      extensionFromPath(sourcePath),
+    )
+  );
 }
 
 export function mediaTypeFromRaw(contentType: string | undefined): string | undefined {

@@ -18,7 +18,12 @@ export function extractSitemapLocations(content) {
     return [...new Set(locations)];
 }
 function decodeXmlText(value) {
-    return value.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&apos;/g, "'");
+    return value
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'");
 }
 export function conceptsFromSynthesis(value) {
     const payload = typeof value === "string" ? JSON.parse(value) : value;
@@ -26,7 +31,10 @@ export function conceptsFromSynthesis(value) {
         throw new ConfigurationError("Synthesis response must include a concepts array.");
     }
     return payload.concepts.map((item) => {
-        if (!isRecord(item) || typeof item.path !== "string" || typeof item.title !== "string" || typeof item.body !== "string") {
+        if (!isRecord(item) ||
+            typeof item.path !== "string" ||
+            typeof item.title !== "string" ||
+            typeof item.body !== "string") {
             throw new ConfigurationError("Each synthesized concept requires path, title, and body.");
         }
         const concept = {
@@ -51,7 +59,10 @@ function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 export function slugify(value) {
-    const slug = value.toLowerCase().replace(/[^a-z0-9\u4e00-\u9fff]+/g, "-").replace(/^-+|-+$/g, "");
+    const slug = value
+        .toLowerCase()
+        .replace(/[^a-z0-9\u4e00-\u9fff]+/g, "-")
+        .replace(/^-+|-+$/g, "");
     return slug === "" ? "source" : slug;
 }
 export function boundedSlug(slug, identity) {
@@ -86,7 +97,8 @@ export function sourceIdentity(input) {
     if (input.kind === "buffer" && input.path !== undefined) {
         return resolve(input.path);
     }
-    return input.title ?? `${input.kind}:${sha256(input.kind === "text" ? input.text : input.buffer.toString("base64"))}`;
+    return (input.title ??
+        `${input.kind}:${sha256(input.kind === "text" ? input.text : Buffer.from(input.buffer).toString("base64"))}`);
 }
 export function publicResource(input) {
     if (typeof input === "string") {
@@ -99,7 +111,7 @@ export function publicResource(input) {
         return safeSanitizeResourceUrl(input.url);
     }
     if (input.kind === "buffer") {
-        return input.path === undefined ? input.title ?? "buffer-source" : basename(input.path);
+        return input.path === undefined ? (input.title ?? "buffer-source") : basename(input.path);
     }
     return input.title ?? "text-source";
 }
@@ -161,7 +173,18 @@ export function frontmatterMetadata(metadata) {
     }
     const out = {};
     for (const [key, value] of Object.entries(metadata)) {
-        if (["type", "title", "description", "resource", "tags", "timestamp", "source_path", "source_paths", "source_id", "content_hash"].includes(key)) {
+        if ([
+            "type",
+            "title",
+            "description",
+            "resource",
+            "tags",
+            "timestamp",
+            "source_path",
+            "source_paths",
+            "source_id",
+            "content_hash",
+        ].includes(key)) {
             continue;
         }
         out[key] = frontmatterValue(value);
@@ -210,8 +233,12 @@ export function changeFailure(path, error) {
 }
 function sanitizeFailureSource(source) {
     return {
-        ...(source.path === undefined ? {} : { path: hasUrlScheme(source.path) ? safeSanitizeResourceUrl(source.path) : source.path }),
-        ...(source.url === undefined ? {} : { url: hasUrlScheme(source.url) ? safeSanitizeResourceUrl(source.url) : source.url }),
+        ...(source.path === undefined
+            ? {}
+            : { path: hasUrlScheme(source.path) ? safeSanitizeResourceUrl(source.path) : source.path }),
+        ...(source.url === undefined
+            ? {}
+            : { url: hasUrlScheme(source.url) ? safeSanitizeResourceUrl(source.url) : source.url }),
         ...(source.contentType === undefined ? {} : { contentType: source.contentType }),
     };
 }

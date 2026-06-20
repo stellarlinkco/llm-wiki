@@ -1,6 +1,14 @@
 import { join } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
 const DEFAULT_TABLE = "okf_documents";
+const SAFE_IDENTIFIER_PART = /^[A-Za-z_][A-Za-z0-9_]*$/;
+function quoteTableIdentifier(tableName) {
+    const parts = tableName.split(".");
+    if (parts.length === 0 || parts.length > 2 || parts.some((part) => !SAFE_IDENTIFIER_PART.test(part))) {
+        throw new Error(`Unsafe SQLite table identifier '${tableName}'. Use an identifier such as '${DEFAULT_TABLE}' or 'main.${DEFAULT_TABLE}'.`);
+    }
+    return parts.map((part) => `"${part}"`).join(".");
+}
 /**
  * SQLite-backed {@link BundleStore} using `better-sqlite3`.
  *
@@ -18,7 +26,7 @@ export class SqliteBundleStore {
     constructor(db, root, tableName) {
         this.db = db;
         this.root = root;
-        this.table = tableName ?? DEFAULT_TABLE;
+        this.table = quoteTableIdentifier(tableName ?? DEFAULT_TABLE);
     }
     init() {
         this.db.exec(`
@@ -44,7 +52,9 @@ export class SqliteBundleStore {
             .prepare(`SELECT content FROM ${this.table} WHERE bundle_id = ? AND path = ?`)
             .get(this.root, bundleRelPath);
         if (row === undefined) {
-            const err = Object.assign(new Error(`ENOENT: no such document, read '${bundleRelPath}'`), { code: "ENOENT" });
+            const err = Object.assign(new Error(`ENOENT: no such document, read '${bundleRelPath}'`), {
+                code: "ENOENT",
+            });
             throw err;
         }
         if (typeof row === "object" && row !== null && "content" in row) {

@@ -20,7 +20,7 @@ export class DocxSourceParser implements FormatParser {
 
   async parse(input: ResolvedParserInput): Promise<ParsedSource> {
     try {
-      const result = await mammoth.convertToHtml({ buffer: input.bytes });
+      const result = await mammoth.convertToHtml({ buffer: Buffer.from(input.bytes) });
       const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
       const markdown = turndown.turndown(result.value).trim();
       const warningMessages = result.messages
@@ -32,7 +32,11 @@ export class DocxSourceParser implements FormatParser {
       if (error instanceof ParserError) {
         throw error;
       }
-      throw new ParserError("PARSE_FAILED", `DOCX parsing failed: ${error instanceof Error ? error.message : String(error)}`, sourceContext(input));
+      throw new ParserError(
+        "PARSE_FAILED",
+        `DOCX parsing failed: ${error instanceof Error ? error.message : String(error)}`,
+        sourceContext(input),
+      );
     }
   }
 }

@@ -14,7 +14,7 @@ export class DocxSourceParser {
     }
     async parse(input) {
         try {
-            const result = await mammoth.convertToHtml({ buffer: input.bytes });
+            const result = await mammoth.convertToHtml({ buffer: Buffer.from(input.bytes) });
             const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
             const markdown = turndown.turndown(result.value).trim();
             const warningMessages = result.messages
