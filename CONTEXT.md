@@ -5,7 +5,7 @@
 
 ## Project Identity
 
-LLM Wiki builds persistent, compounding knowledge bases for LLM-assisted work. The `@llm-wiki/sdk` TypeScript SDK provides an OKF-native knowledge bundle library — deterministic bookkeeping, local filesystem/search defaults, and official LLM provider adapters for synthesis.
+LLM Wiki builds persistent, compounding knowledge bases for LLM-assisted work, inspired by [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) (local: `docs/karpathy-llm-wiki-gist.md`). The `@llm-wiki/sdk` TypeScript SDK provides an OKF-native knowledge bundle library — deterministic bookkeeping, local filesystem/search defaults, and official LLM provider adapters for synthesis.
 
 - **Primary users / consumers**: TypeScript/Node applications embedding knowledge-base capabilities.
 - **Business goal**: Make LLM-assisted knowledge management reproducible, file-based, and git-friendly.

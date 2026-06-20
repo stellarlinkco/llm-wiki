@@ -55,7 +55,7 @@ LLM Wiki builds persistent, compounding knowledge bases for LLM-assisted work. T
 | Formatter | Prettier | — | `.prettierrc.json` |
 | Dead code | knip | — | `knip.config.ts` |
 | Duplicate code | jscpd | — | `.jscpd.json` |
-| Commit lint | commitlint | — | `commitlint.config.js` |
+| Reference docs | Karpathy LLM Wiki gist, Google Cloud OKF announcement | — | `docs/karpathy-llm-wiki-gist.md`, `docs/okf-google-cloud-blog.md` |
 | Release | changesets | — | conventional-commit-driven |
 
 ### Dependency policy
