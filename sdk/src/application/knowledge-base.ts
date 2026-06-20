@@ -1,5 +1,5 @@
 import { basename, dirname, extname, join, resolve } from "node:path";
-import { stat } from "node:fs/promises";
+
 import type {
   BundleStore,
   ChangeSet,
@@ -60,7 +60,7 @@ import {
 } from "./helpers.js";
 
 const DEFAULT_SYNTHESIS_PROMPT =
-  "Generate OKF concept documents as JSON. Return {\"concepts\":[{\"path\":\"concepts/name.md\",\"title\":\"...\",\"description\":\"...\",\"tags\":[\"...\"],\"body\":\"...\",\"sourcePaths\":[\"sources/name.md\"]}]} only.";
+  'Generate OKF concept documents as JSON. Return {"concepts":[{"path":"concepts/name.md","title":"...","description":"...","tags":["..."],"body":"...","sourcePaths":["sources/name.md"]}]} only.';
 
 export class KnowledgeBase {
   private constructor(
@@ -77,10 +77,16 @@ export class KnowledgeBase {
     await store.init();
     await store.writeIfMissing(
       "index.md",
-      "---\nokf_version: \"0.1\"\n---\n\n# Knowledge Bundle\n\n- [Sources](sources/) - Ingested source documents.\n- [Concepts](concepts/) - Synthesized concepts.\n- [References](references/) - External references.\n",
+      '---\nokf_version: "0.1"\n---\n\n# Knowledge Bundle\n\n- [Sources](sources/) - Ingested source documents.\n- [Concepts](concepts/) - Synthesized concepts.\n- [References](references/) - External references.\n',
     );
     await store.writeIfMissing("log.md", "# Bundle Update Log\n");
-    return new KnowledgeBase(root, options.llm, options.parser ?? new DefaultSourceParser(), options.search ?? new LocalSearchAdapter(store), store);
+    return new KnowledgeBase(
+      root,
+      options.llm,
+      options.parser ?? new DefaultSourceParser(),
+      options.search ?? new LocalSearchAdapter(store),
+      store,
+    );
   }
 
   static async open(options: KnowledgeBaseOptions): Promise<KnowledgeBase> {
@@ -90,7 +96,13 @@ export class KnowledgeBase {
     if (!hasIndex) {
       throw new ConfigurationError(`Bundle root does not exist: ${root}`);
     }
-    return new KnowledgeBase(root, options.llm, options.parser ?? new DefaultSourceParser(), options.search ?? new LocalSearchAdapter(store), store);
+    return new KnowledgeBase(
+      root,
+      options.llm,
+      options.parser ?? new DefaultSourceParser(),
+      options.search ?? new LocalSearchAdapter(store),
+      store,
+    );
   }
 
   async ingest(options: IngestOptions): Promise<ChangeSet> {
@@ -133,7 +145,12 @@ export class KnowledgeBase {
       changeSet.warnings.push(...result.warnings);
       ingested += 1;
     }
-    await this.appendLog("crawl", [`Sitemap: ${sitemapUrl.toString()}`, `Created: ${changeSet.created.length}`, `Updated: ${changeSet.updated.length}`, `Failed: ${changeSet.failed.length}`]);
+    await this.appendLog("crawl", [
+      `Sitemap: ${sitemapUrl.toString()}`,
+      `Created: ${changeSet.created.length}`,
+      `Updated: ${changeSet.updated.length}`,
+      `Failed: ${changeSet.failed.length}`,
+    ]);
     return changeSet;
   }
 
@@ -174,11 +191,15 @@ export class KnowledgeBase {
       ...(options.description === undefined ? [] : [options.description, ""]),
       "## Sources",
       "",
-      ...sourceDocs.map((doc) => `- [${doc.frontmatter.title ?? titleFromPath(doc.path)}](${doc.path}) — ${doc.frontmatter.type}`),
+      ...sourceDocs.map(
+        (doc) => `- [${doc.frontmatter.title ?? titleFromPath(doc.path)}](${doc.path}) — ${doc.frontmatter.type}`,
+      ),
       "",
       "## Concepts",
       "",
-      ...conceptDocs.map((doc) => `- [${doc.frontmatter.title ?? titleFromPath(doc.path)}](${doc.path}) — ${doc.frontmatter.type}`),
+      ...conceptDocs.map(
+        (doc) => `- [${doc.frontmatter.title ?? titleFromPath(doc.path)}](${doc.path}) — ${doc.frontmatter.type}`,
+      ),
     ].join("\n");
     await this.store.write("index.md", `---\nokf_version: "0.1"\n---\n\n${body.trimEnd()}\n`);
     changeSet.updated.push("index.md");
@@ -192,14 +213,19 @@ export class KnowledgeBase {
     }
     const changeSet = emptyChangeSet("synthesize");
     const limit = options.limit ?? 5;
-    const retrieved = (await this.search(options.query, { limit: limit * 3 })).filter((result) => result.type === "Source Document").slice(0, limit);
-    const contextBlocks = await Promise.all(retrieved.map(async (result) => {
-      const content = await this.store.read(result.path);
-      return `# ${result.path}\n${content}`;
-    }));
-    const systemContent = options.outputSchema !== undefined
-      ? `${options.outputSchema}\n\n${options.systemPrompt ?? DEFAULT_SYNTHESIS_PROMPT}`
-      : (options.systemPrompt ?? DEFAULT_SYNTHESIS_PROMPT);
+    const retrieved = (await this.search(options.query, { limit: limit * 3 }))
+      .filter((result) => result.type === "Source Document")
+      .slice(0, limit);
+    const contextBlocks = await Promise.all(
+      retrieved.map(async (result) => {
+        const content = await this.store.read(result.path);
+        return `# ${result.path}\n${content}`;
+      }),
+    );
+    const systemContent =
+      options.outputSchema !== undefined
+        ? `${options.outputSchema}\n\n${options.systemPrompt ?? DEFAULT_SYNTHESIS_PROMPT}`
+        : (options.systemPrompt ?? DEFAULT_SYNTHESIS_PROMPT);
     const response = await this.llm.generate({
       structuredOutput: { type: "json" },
       messages: [
@@ -264,15 +290,18 @@ export class KnowledgeBase {
       throw new ConfigurationError("LLM provider is required for query().");
     }
     const retrieved = await this.search(question, { limit: options.limit ?? 5 });
-    const contextBlocks = await Promise.all(retrieved.map(async (result) => {
-      const content = await this.store.read(result.path);
-      return `# ${result.path}\n${content}`;
-    }));
+    const contextBlocks = await Promise.all(
+      retrieved.map(async (result) => {
+        const content = await this.store.read(result.path);
+        return `# ${result.path}\n${content}`;
+      }),
+    );
     const response = await this.llm.generate({
       messages: [
         {
           role: "system",
-          content: "Answer questions using only the supplied OKF bundle context. Include citations to bundle-relative paths.",
+          content:
+            "Answer questions using only the supplied OKF bundle context. Include citations to bundle-relative paths.",
         },
         {
           role: "user",
@@ -283,7 +312,8 @@ export class KnowledgeBase {
     const retrievedPaths = new Set(retrieved.map((result) => result.path));
     const answer: QueryAnswer = {
       text: response.text,
-      citations: response.citations?.filter((citation) => isBundleCitation(citation) && retrievedPaths.has(citation)) ?? [],
+      citations:
+        response.citations?.filter((citation) => isBundleCitation(citation) && retrievedPaths.has(citation)) ?? [],
       retrieved,
     };
     if (response.usage !== undefined) {
@@ -312,11 +342,19 @@ export class KnowledgeBase {
           validateReservedFile(parsed, relPath, errors);
         }
       } else if (!parsed.hasFrontmatter) {
-        errors.push({ path: relPath, code: "missing_frontmatter", message: "Concept document must start with YAML frontmatter." });
+        errors.push({
+          path: relPath,
+          code: "missing_frontmatter",
+          message: "Concept document must start with YAML frontmatter.",
+        });
       } else if (parsed.frontmatterError !== undefined) {
         errors.push({ path: relPath, code: "malformed_frontmatter", message: parsed.frontmatterError });
       } else if (typeof parsed.frontmatter.type !== "string" || parsed.frontmatter.type.trim() === "") {
-        errors.push({ path: relPath, code: "missing_type", message: "Concept document frontmatter must include a non-empty type field." });
+        errors.push({
+          path: relPath,
+          code: "missing_type",
+          message: "Concept document frontmatter must include a non-empty type field.",
+        });
       }
 
       for (const target of extractMarkdownLinks(parsed.body)) {
@@ -327,7 +365,10 @@ export class KnowledgeBase {
         if (targetWithoutFragment === "") {
           continue;
         }
-        const sourceUrl = typeof parsed.frontmatter.resource === "string" ? parsed.frontmatter.resource : parsed.frontmatter.source_path;
+        const sourceUrl =
+          typeof parsed.frontmatter.resource === "string"
+            ? parsed.frontmatter.resource
+            : parsed.frontmatter.source_path;
         if (typeof sourceUrl === "string" && hasUrlScheme(sourceUrl)) {
           continue;
         }
@@ -335,7 +376,11 @@ export class KnowledgeBase {
           ? targetWithoutFragment.slice(1)
           : join(dirname(relPath), targetWithoutFragment);
         if (targetRel.startsWith("..")) {
-          errors.push({ path: relPath, code: "link_outside_bundle", message: `Internal link escapes bundle root: ${target}` });
+          errors.push({
+            path: relPath,
+            code: "link_outside_bundle",
+            message: `Internal link escapes bundle root: ${target}`,
+          });
           continue;
         }
         if (!(await this.store.exists(targetRel))) {
@@ -362,7 +407,9 @@ export class KnowledgeBase {
 
   async listConcepts(options: ListConceptOptions = {}): Promise<ConceptDocument[]> {
     const concepts = await this.readConcepts();
-    return options.type === undefined ? concepts : concepts.filter((concept) => concept.frontmatter.type === options.type);
+    return options.type === undefined
+      ? concepts
+      : concepts.filter((concept) => concept.frontmatter.type === options.type);
   }
 
   async export(options: ExportOptions): Promise<ChangeSet> {
@@ -458,7 +505,10 @@ export class KnowledgeBase {
 
   private async sourceOutputPath(sourceIdentity: string, resource: string): Promise<string> {
     const rawSlug = slugify(basename(sourceBasename(resource), extname(sourceBasename(resource))));
-    const safeSlug = boundedSlug(rawSlug === "index" || rawSlug === "log" ? `source-${rawSlug}` : rawSlug, sourceIdentity);
+    const safeSlug = boundedSlug(
+      rawSlug === "index" || rawSlug === "log" ? `source-${rawSlug}` : rawSlug,
+      sourceIdentity,
+    );
     const slug = safeSlug;
     const candidate = `sources/${slug}.md`;
     if (!(await this.store.exists(candidate))) {
@@ -492,7 +542,9 @@ export class KnowledgeBase {
   private async appendLog(operation: string, lines: string[]): Promise<void> {
     const logRel = "log.md";
     const current = (await this.store.exists(logRel)) ? await this.store.read(logRel) : "# Bundle Update Log\n";
-    const entry = [`\n## ${new Date().toISOString().slice(0, 10)}`, `* **${operation}**: ${lines.join("; ")}`].join("\n");
+    const entry = [`\n## ${new Date().toISOString().slice(0, 10)}`, `* **${operation}**: ${lines.join("; ")}`].join(
+      "\n",
+    );
     await this.store.write(logRel, `${current.trimEnd()}\n${entry}\n`);
   }
 }
