@@ -1,0 +1,43 @@
+{
+  "name": "@llm-wiki/sdk",
+  "version": "0.1.0",
+  "description": "OKF-native TypeScript SDK for living LLM wikis",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "demo:create-kb": "npm run build && node examples/create-knowledge-base.mjs",
+    "test": "npm run build && node --test test/*.test.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^28.0.3",
+    "@types/node": "^22.0.0",
+    "@types/turndown": "^5.0.6",
+    "typescript": "^5.5.0"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.105.0",
+    "@mozilla/readability": "^0.6.0",
+    "jsdom": "^29.1.1",
+    "mammoth": "^1.12.0",
+    "node-pptx-parser": "^1.0.1",
+    "openai": "^6.44.0",
+    "pdf-parse": "^2.4.5",
+    "turndown": "^7.2.4"
+  }
+}

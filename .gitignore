@@ -10,3 +10,7 @@ build/
 *.egg
 .env
 .venv/
+
+node_modules/
+.agents/
+.llm-wiki/

@@ -94,6 +94,38 @@ All commands output JSON to stdout and logs to stderr. Designed for subprocess i
 --fix              # Auto-fix recoverable validation issues
 ```
 
+## TypeScript SDK synthesis flow
+
+The SDK can build the same OKF bundle without an agent manually writing concept files:
+
+```ts
+import { KnowledgeBase, OpenAIProvider } from "@llm-wiki/sdk";
+
+const kb = await KnowledgeBase.create({
+  root: "./my-wiki",
+  llm: new OpenAIProvider({
+    apiKey: process.env.OPENAI_API_KEY!,
+    baseUrl: process.env.OPENAI_BASE_URL,
+    model: process.env.OPENAI_MODEL,
+  }),
+});
+
+await kb.crawl({ sitemapUrl: "https://example.com/sitemap.xml", limit: 80 });
+await kb.ingest({ path: { kind: "url", url: "https://example.com/index.md" } });
+await kb.synthesize({
+  query: "company products agent interfaces",
+  instructions: "Generate one grounded concept under concepts/company-overview.md.",
+  limit: 8,
+});
+await kb.writeIndex({
+  title: "Company Knowledge Base",
+  description: "Generated from public source documents and SDK-synthesized concepts.",
+});
+await kb.validate();
+```
+
+`crawl()` fetches a sitemap, skips off-origin URLs, and ingests same-origin pages through the same `ingest()` path used by direct sources. `synthesize()` retrieves bundle context with SDK search, calls the configured LLM provider with JSON structured output, writes `concepts/*.md` through `writeConcept()`, marks generated concept frontmatter with `generated_by: llm-wiki-sdk`, reindexes the bundle, and records a `synthesize` audit entry. `writeIndex()` regenerates `index.md` as the bundle entry point listing source documents and generated concepts. `status()` reports source documents separately from generated concept documents.
+
 ## Supported Formats
 
 Powered by [Microsoft MarkItDown](https://github.com/microsoft/markitdown):
@@ -144,13 +176,46 @@ Dependency direction: `Infrastructure → Application → Domain` (inner ring ha
 
 ## Testing
 
+### SDK
+
+```bash
+cd sdk
+npm test
+npm run typecheck
+```
+
+The SDK test suite is split by surface:
+
+- `test/knowledge-base.test.js` — core `KnowledgeBase` workflows.
+- `test/source-parsers.test.js` — markdown/text/JSON/HTML/URL parsing and ingest behavior.
+- `test/document-parsers.test.js` — PDF/DOCX/PPTX parser coverage.
+- `test/providers.test.js` — LLM provider contracts and citation filtering.
+- `test/validation.test.js` — OKF/frontmatter/link validation.
+- `test/helpers.js` — shared fixtures and test helpers.
+Current SDK gate: 92 Node tests plus TypeScript typecheck.
+
+### CLI
+
 ```bash
 cd cli
 pip install -e ".[dev]"
-pytest tests/ -v
+python3 -m pytest tests/ -q
 ```
 
-162 tests: 32 domain unit + 73 application unit + 42 integration + 15 end-to-end.
+Current CLI gate: 162 tests — 32 domain unit + 73 application unit + 42 integration + 15 end-to-end.
+
+### Packaged SDK E2E
+
+Before release, build and pack `sdk`, install the generated tarball into a temporary app, then exercise package import/create/open, parser ingest/search, unsupported-media typed failure, query citation filtering, and validate/export.
+
+### Create a demo knowledge base
+
+```bash
+cd sdk
+npm run demo:create-kb
+```
+
+The demo builds the SDK, creates an isolated knowledge-base directory under `/tmp`, ingests a markdown source, runs search, validates the OKF bundle, and prints a JSON summary with the generated root path.
 
 ## Usage with Claude Code
 

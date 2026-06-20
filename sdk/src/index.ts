@@ -1,0 +1,41 @@
+export { ConfigurationError, ParserError, ValidationError } from "./domain/errors.js";
+export type {
+  ChangeFailure,
+  ChangeSet,
+  ChangeWarning,
+  ConceptDocument,
+  CrawlOptions,
+  ExportOptions,
+  IngestOptions,
+  KnowledgeBaseOptions,
+  ListConceptOptions,
+  LLMStructuredOutput,
+  ParsedSource,
+  ParserSourceInput,
+  LLMMessage,
+  LLMProvider,
+  LLMRequest,
+  LLMResponse,
+  OkfFrontmatter,
+  QueryAnswer,
+  QueryOptions,
+  SearchAdapter,
+  SearchOptions,
+  SearchResult,
+  OpenAIProviderOptions,
+  AnthropicProviderOptions,
+  SourceParser,
+  SourceKind,
+  StatusReport,
+  SynthesizeOptions,
+  ValidationFinding,
+  ValidationReport,
+  WriteConceptOptions,
+  WriteIndexOptions,
+} from "./domain/types.js";
+export { KnowledgeBase } from "./application/knowledge-base.js";
+export { LocalSearchAdapter } from "./infrastructure/local-search.js";
+export { DefaultSourceParser } from "./infrastructure/source-parser.js";
+export { CompositeSourceParser } from "./infrastructure/parsers/composite.js";
+export { OpenAIProvider } from "./infrastructure/providers/openai.js";
+export { AnthropicProvider } from "./infrastructure/providers/anthropic.js";

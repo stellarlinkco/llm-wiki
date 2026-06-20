@@ -94,6 +94,38 @@ llm-wiki --root ./my-wiki status
 --fix              # validate 自动修复可修复的问题
 ```
 
+## TypeScript SDK 综合流程
+
+SDK 可以在没有 Agent 手工写概念文件的情况下构建同一套 OKF bundle：
+
+```ts
+import { KnowledgeBase, OpenAIProvider } from "@llm-wiki/sdk";
+
+const kb = await KnowledgeBase.create({
+  root: "./my-wiki",
+  llm: new OpenAIProvider({
+    apiKey: process.env.OPENAI_API_KEY!,
+    baseUrl: process.env.OPENAI_BASE_URL,
+    model: process.env.OPENAI_MODEL,
+  }),
+});
+
+await kb.crawl({ sitemapUrl: "https://example.com/sitemap.xml", limit: 80 });
+await kb.ingest({ path: { kind: "url", url: "https://example.com/index.md" } });
+await kb.synthesize({
+  query: "company products agent interfaces",
+  instructions: "Generate one grounded concept under concepts/company-overview.md.",
+  limit: 8,
+});
+await kb.writeIndex({
+  title: "Company Knowledge Base",
+  description: "Generated from public source documents and SDK-synthesized concepts.",
+});
+await kb.validate();
+```
+
+`crawl()` 会读取 sitemap，跳过非同源 URL，并把同源页面交给与直接 source 相同的 `ingest()` 路径处理。`synthesize()` 会通过 SDK search 检索 bundle 上下文，调用配置好的 LLM provider 获取 JSON structured output，再通过 `writeConcept()` 写入 `concepts/*.md`，在生成的概念 frontmatter 中标记 `generated_by: llm-wiki-sdk`，重建索引，并记录 `synthesize` 审计日志。`writeIndex()` 会重新生成 `index.md`，作为列出 source documents 和 generated concepts 的 bundle 入口。`status()` 会分开报告 source documents 和 generated concept documents。
+
 ## 支持的文件格式
 
 通过 [Microsoft MarkItDown](https://github.com/microsoft/markitdown) 支持：
@@ -144,13 +176,46 @@ cli/src/llm_wiki/
 
 ## 测试
 
+### SDK
+
+```bash
+cd sdk
+npm test
+npm run typecheck
+```
+
+SDK 测试按关注面拆分：
+
+- `test/knowledge-base.test.js` — 核心 `KnowledgeBase` 工作流。
+- `test/source-parsers.test.js` — markdown/text/JSON/HTML/URL 解析与 ingest 行为。
+- `test/document-parsers.test.js` — PDF/DOCX/PPTX 解析器覆盖。
+- `test/providers.test.js` — LLM provider 契约与 citation 过滤。
+- `test/validation.test.js` — OKF/frontmatter/link 校验。
+- `test/helpers.js` — 共享 fixtures 和测试 helpers。
+当前 SDK gate：92 个 Node 测试 + TypeScript typecheck。
+
+### CLI
+
 ```bash
 cd cli
 pip install -e ".[dev]"
-pytest tests/ -v
+python3 -m pytest tests/ -q
 ```
 
-162 个测试：32 域层单元测试 + 73 应用层单元测试 + 42 集成测试 + 15 端到端测试。
+当前 CLI gate：162 个测试：32 域层单元测试 + 73 应用层单元测试 + 42 集成测试 + 15 端到端测试。
+
+### 打包后的 SDK E2E
+
+发布前需要构建并打包 `sdk`，把生成的 tarball 安装到临时应用中，再验证 package import/create/open、parser ingest/search、unsupported-media typed failure、query citation filtering，以及 validate/export。
+
+### 创建 demo 知识库
+
+```bash
+cd sdk
+npm run demo:create-kb
+```
+
+该 demo 会构建 SDK，在 `/tmp` 下创建隔离的知识库目录，ingest 一个 markdown source，执行 search，校验 OKF bundle，并输出包含生成根目录的 JSON 摘要。
 
 ## 与 Claude Code 配合使用
 
