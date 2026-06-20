@@ -9,94 +9,35 @@ Build persistent, compounding personal knowledge bases with LLMs. Inspired by [A
 ## Architecture
 
 ```
-Source files ──▶ CLI (parse) ──▶ raw/*.md ──▶ Skill (LLM) ──▶ wiki pages
-                 deterministic    parsed docs    synthesis      entities/concepts/summaries
+Source files ──▶ KnowledgeBase SDK ──▶ OKF bundle (.md + frontmatter + search index)
+                  parse / ingest       LLM synthesize / query / validate / export
 ```
 
-Two-layer design:
-
-| Layer | Responsibility | Tech |
-|-------|---------------|------|
-| **CLI** (`llm-wiki`) | Document parsing, search, indexing, validation | Python, MarkItDown, BM25+jieba |
-| **Skill** (SKILL.md) | Knowledge synthesis, cross-referencing, wiki page generation | Claude Code / any LLM Agent |
+The `@llm-wiki/sdk` TypeScript SDK manages the full knowledge-base lifecycle:
+- **Ingest** — source parsing (URLs, files, buffers → Markdown with YAML frontmatter)
+- **Search** — MiniSearch-based full-text search over bundle content
+- **Synthesize** — LLM-driven concept generation from retrieved bundle context
+- **Query** — LLM-powered Q&A with citation-filtered bundle context
+- **Validate** — OKF schema, frontmatter, and link integrity checks
+- **Export** — safe bundle copy to external destinations
 
 Three-layer wiki structure:
 
 ```
 my-wiki/
-├── raw/          # Parsed source documents (CLI writes, LLM reads only)
-├── wiki/         # LLM-generated wiki pages (entities, concepts, summaries, comparisons)
-│   ├── entities/
-│   ├── concepts/
-│   ├── sources/
-│   ├── index.md
-│   └── log.md
-├── CLAUDE.md     # Wiki schema (conventions, formats, workflows)
-└── .llm-wiki/    # Search index
-```
-
-## Installation
-
-```bash
-git clone git@github.com:stellarlinkco/llm-wiki.git
-cd llm-wiki/cli
-pip install -e .
+├── sources/       # Ingested source documents (SDK writes, LLM reads)
+├── concepts/      # LLM-synthesized concept pages
+├── references/    # External reference links
+├── index.md       # Bundle entry-point catalog
+├── log.md         # Changelog of bundle operations
+└── .llm-wiki/     # Search index + metadata
 ```
 
 ## Quick Start
 
 ```bash
-# 1. Create a knowledge base
-llm-wiki init ./my-wiki --name "AI Research" --description "Papers and notes on AI"
-
-# 2. Parse documents (supports PDF/DOCX/HTML/PPTX/XLSX/TXT/images and more)
-llm-wiki --root ./my-wiki parse ~/papers/paper.pdf
-llm-wiki --root ./my-wiki parse ~/articles/article.docx
-
-# 3. Build index
-llm-wiki --root ./my-wiki index
-
-# 4. Search (supports English and Chinese)
-llm-wiki --root ./my-wiki search "attention mechanism"
-llm-wiki --root ./my-wiki search "transformer architecture"
-
-# 5. Validate wiki integrity
-llm-wiki --root ./my-wiki validate
-
-# 6. Check status
-llm-wiki --root ./my-wiki status
+npm install @llm-wiki/sdk
 ```
-
-## CLI Commands
-
-All commands output JSON to stdout and logs to stderr. Designed for subprocess invocation by any LLM agent.
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `init <path>` | Scaffold a wiki project | `llm-wiki init ./wiki --name "Research"` |
-| `parse <file\|dir>` | Document → Markdown (via MarkItDown) | `llm-wiki --root ./wiki parse paper.pdf` |
-| `index` | Rebuild catalog + BM25 search index | `llm-wiki --root ./wiki index` |
-| `search <query>` | BM25-ranked search with snippets | `llm-wiki --root ./wiki search "transformers"` |
-| `validate` | Check frontmatter, dead links, structure | `llm-wiki --root ./wiki validate` |
-| `list` | List pages with metadata | `llm-wiki --root ./wiki list --type entity` |
-| `status` | Wiki stats and staleness detection | `llm-wiki --root ./wiki status` |
-
-### Common Flags
-
-```bash
---root <path>      # Wiki root directory (auto-discovered by default via .llm-wiki/)
---recursive        # Process subdirectories when parsing
---limit N          # Max search results (default: 10)
---type <type>      # Filter by page type (entity/concept/source/comparison/query)
---raw-only         # Search only raw/ documents
---wiki-only        # Search only wiki/ pages
---raw              # List raw/ files instead of wiki/ pages
---fix              # Auto-fix recoverable validation issues
-```
-
-## TypeScript SDK synthesis flow
-
-The SDK can build the same OKF bundle without an agent manually writing concept files:
 
 ```ts
 import { KnowledgeBase, OpenAIProvider } from "@llm-wiki/sdk";
@@ -105,110 +46,103 @@ const kb = await KnowledgeBase.create({
   root: "./my-wiki",
   llm: new OpenAIProvider({
     apiKey: process.env.OPENAI_API_KEY!,
-    baseUrl: process.env.OPENAI_BASE_URL,
-    model: process.env.OPENAI_MODEL,
+    model: "gpt-4o-mini",
   }),
 });
 
+// Crawl a sitemap and ingest matching pages
 await kb.crawl({ sitemapUrl: "https://example.com/sitemap.xml", limit: 80 });
+
+// Ingest individual sources
 await kb.ingest({ path: { kind: "url", url: "https://example.com/index.md" } });
+await kb.ingest({ path: "./local-doc.pdf" });
+
+// Synthesize concepts from bundle context using LLM
 await kb.synthesize({
-  query: "company products agent interfaces",
+  query: "company products and interfaces",
   instructions: "Generate one grounded concept under concepts/company-overview.md.",
   limit: 8,
 });
+
+// Regenerate the entry-point index
 await kb.writeIndex({
   title: "Company Knowledge Base",
   description: "Generated from public source documents and SDK-synthesized concepts.",
 });
-await kb.validate();
+
+// Validate bundle integrity
+const report = await kb.validate();
+console.log(report.valid ? "OK" : report.errors);
+
+// Export the bundle
+await kb.export({ path: "./backup" });
 ```
 
 `crawl()` fetches a sitemap, skips off-origin URLs, and ingests same-origin pages through the same `ingest()` path used by direct sources. `synthesize()` retrieves bundle context with SDK search, calls the configured LLM provider with JSON structured output, writes `concepts/*.md` through `writeConcept()`, marks generated concept frontmatter with `generated_by: llm-wiki-sdk`, reindexes the bundle, and records a `synthesize` audit entry. `writeIndex()` regenerates `index.md` as the bundle entry point listing source documents and generated concepts. `status()` reports source documents separately from generated concept documents.
 
 ## Supported Formats
 
-Powered by [Microsoft MarkItDown](https://github.com/microsoft/markitdown):
-
 - **Documents**: PDF, DOCX, PPTX, XLSX
-- **Web**: HTML, HTM
+- **Web**: HTML (via jsdom + Readability)
 - **Text**: TXT, CSV, JSON, XML, Markdown
-- **Notebooks**: Jupyter (.ipynb)
-- **Media**: JPG, PNG, GIF, WebP (EXIF/OCR), WAV, MP3
-- **Archives**: ZIP (recursive)
+- **Buffers**: in-memory content with explicit metadata
 
 ## Search Features
 
-- **BM25Plus** full-text search — handles small corpora correctly
-- **jieba segmentation** for CJK (Chinese/Japanese/Korean) text
-- **Title boosting** — pages whose title matches the query rank higher
-- **Stopword filtering** — common CJK function words filtered from ranking
-- **Deduplication** — raw/ and wiki/sources/ results for the same source are merged
-- **Clean snippets** — matched sentences with markdown syntax stripped
+- **MiniSearch** full-text search with typo tolerance and prefix matching
+- **Relevance scoring** with title boost
+- **Citation integrity** — `query()` restricts citations to paths actually in the retrieved bundle
+- **Deterministic independence** — search, validate, status, export work without an LLM provider
 
 ## Architecture Design
 
-Follows **Clean Architecture + DDD + Hexagonal** patterns:
+Follows **ports-and-adapters** (hexagonal) layering:
 
 ```
-cli/src/llm_wiki/
-├── domain/              # Inner ring: pure business logic, zero external deps
-│   ├── models.py        # Value objects: ParsedDocument, WikiPage, SearchResult...
-│   ├── ports.py         # Port interfaces: DocumentParser, PageRepository, SearchEngine
-│   └── errors.py        # Domain errors
-├── application/         # Middle ring: use case orchestration
-│   ├── init_project.py
-│   ├── parse_document.py
-│   ├── build_index.py
-│   ├── search_wiki.py
-│   ├── validate_wiki.py
-│   ├── list_pages.py
-│   └── get_status.py
-└── infrastructure/      # Outer ring: adapters
-    ├── markitdown_parser.py   # MarkItDown parsing adapter
-    ├── filesystem.py          # Local filesystem adapter
-    ├── bm25_search.py         # BM25+jieba search adapter
-    ├── cli.py                 # Click CLI driver adapter
-    └── container.py           # Dependency injection composition root
+sdk/src/
+├── domain/              # Inner ring: types, interfaces, errors — zero deps
+│   ├── types.ts         # Public contracts: KnowledgeBaseOptions, ChangeSet, ...
+│   └── errors.ts        # Domain errors: ConfigurationError, ParserError
+├── application/         # Middle ring: use-case orchestration
+│   ├── knowledge-base.ts  # KnowledgeBase facade
+│   ├── helpers.ts         # Shared utilities
+│   └── search.ts          # Tokenization + scoring helpers
+└── infrastructure/      # Outer ring: concrete adapters
+    ├── filesystem.ts       # atomicWrite, path utilities
+    ├── filesystem-store.ts # Bundle store (OKF file layout)
+    ├── markdown.ts         # Markdown/frontmatter parse + serialize
+    ├── local-search.ts     # MiniSearch adapter
+    ├── source-parser.ts    # Composite source parser
+    ├── parsers/            # Format-specific parsers (PDF, DOCX, PPTX, HTML, ...)
+    └── providers/          # LLM provider adapters (OpenAI, Anthropic)
 ```
 
-Dependency direction: `Infrastructure → Application → Domain` (inner ring has zero external imports)
+Dependency direction: `Infrastructure → Application → Domain` (inner ring has zero external imports).
 
 ## Testing
 
-### SDK
-
 ```bash
 cd sdk
-npm test
-npm run typecheck
+npm install
+npm test          # 93 tests via node:test
+npm run typecheck # strict TypeScript
 ```
 
-The SDK test suite is split by surface:
-
-- `test/knowledge-base.test.js` — core `KnowledgeBase` workflows.
-- `test/source-parsers.test.js` — markdown/text/JSON/HTML/URL parsing and ingest behavior.
-- `test/document-parsers.test.js` — PDF/DOCX/PPTX parser coverage.
-- `test/providers.test.js` — LLM provider contracts and citation filtering.
-- `test/validation.test.js` — OKF/frontmatter/link validation.
-- `test/helpers.js` — shared fixtures and test helpers.
-Current SDK gate: 93 Node tests plus TypeScript typecheck.
-
-### CLI
-
-```bash
-cd cli
-pip install -e ".[dev]"
-python3 -m pytest tests/ -q
-```
-
-Current CLI gate: 162 tests — 32 domain unit + 73 application unit + 42 integration + 15 end-to-end.
+Test files by surface:
+- `test/knowledge-base.test.js` — core KnowledgeBase workflows
+- `test/source-parsers.test.js` — markdown/text/JSON/HTML/URL parsing
+- `test/document-parsers.test.js` — PDF/DOCX/PPTX parser coverage
+- `test/providers.test.js` — LLM provider contracts and citation filtering
+- `test/validation.test.js` — OKF/frontmatter/link validation
+- `test/helpers.js` — shared fixtures and test helpers
 
 ### Packaged SDK E2E
 
-Before release, build and pack `sdk`, install the generated tarball into a temporary app, then exercise package import/create/open, parser ingest/search, unsupported-media typed failure, query citation filtering, and validate/export.
+Before release, build and pack `sdk`, install the generated tarball into a temporary Node app, import `@llm-wiki/sdk`, then exercise `create → ingest → search → query → validate → export`. Keep evidence when doing formal E2E QA.
 
-### Create a demo knowledge base
+Live OpenAI/Anthropic API calls are not part of the default local test suite. Treat them as separate provider-boundary E2E checks requiring safe sandbox credentials.
+
+### Demo
 
 ```bash
 cd sdk
@@ -219,13 +153,13 @@ The demo builds the SDK, creates an isolated knowledge-base directory under `/tm
 
 ## Usage with Claude Code
 
-Install `SKILL.md` as a Claude Code skill to control the knowledge base with natural language:
+Install `SKILL.md` as a Claude Code skill to synthesize, cross-reference, and query a knowledge base with natural language. The Skill orchestrates SDK operations and LLM synthesis on top of a deterministic bundle:
 
 ```
 /llm-wiki init ./research --name "AI Papers"
-/llm-wiki ingest ~/papers/attention.pdf    # Parse + LLM synthesis into wiki pages
+/llm-wiki ingest ~/papers/attention.pdf
 /llm-wiki query "What's the difference between transformers and RNNs?"
-/llm-wiki lint                              # Check knowledge consistency
+/llm-wiki lint
 ```
 
 ## Inspiration

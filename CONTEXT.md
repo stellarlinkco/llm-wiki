@@ -49,7 +49,6 @@ LLM Wiki builds persistent, compounding knowledge bases for LLM-assisted work. T
 | `KnowledgeBase` class | `sdk/src/application/knowledge-base.ts` | Public method signatures are a contract — breaking changes require semver major | `sdk/test/knowledge-base.test.js` |
 | Public types | `sdk/src/domain/types.ts` | Exported types/interfaces are a contract | Snapshot test (via `just test-snapshots`) |
 | SDK barrel | `sdk/src/index.ts` | All public exports; no internal symbols leaked | TypeScript compilation |
-| CLI entrypoint (`llm-wiki`) | Removed — repository is TypeScript SDK only | N/A | N/A |
 
 ## Forbidden Logic & Irreversible Operations
 

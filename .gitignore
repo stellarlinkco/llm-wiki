@@ -1,15 +1,6 @@
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
 dist/
 build/
-.pytest_cache/
-.harness-root
-.harness-active
-*.egg
 .env
-.venv/
 
 node_modules/
 .agents/

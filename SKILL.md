@@ -1,19 +1,17 @@
 ---
 name: llm-wiki
-description: "Build and maintain LLM-powered personal knowledge bases. Two-layer system: a Python CLI (`llm-wiki`) handles deterministic operations (document parsing via Microsoft MarkItDown, BM25 search, validation, indexing), while this Skill orchestrates LLM intelligence (synthesis, cross-referencing, wiki page generation). Use when user wants to create a knowledge base, build a wiki, organize research, compile notes, ingest documents, or says 'llm-wiki'."
+description: "Build and maintain LLM-powered personal knowledge bases using the @llm-wiki/sdk TypeScript SDK. Deterministic operations (document parsing, full-text search, validation, indexing) run through the SDK; LLM synthesis and cross-referencing are orchestrated by this Skill. Use when user wants to create a knowledge base, build a wiki, organize research, compile notes, ingest documents, or says 'llm-wiki'."
 ---
 
 # LLM Wiki — Personal Knowledge Base Builder
 
-Two-layer architecture: **CLI** (deterministic) + **Skill** (LLM intelligence).
-
-The CLI parses documents, searches, validates, indexes. The Skill reads parsed content, synthesizes wiki pages, maintains cross-references, and answers questions. The human curates sources and asks questions.
+The `@llm-wiki/sdk` TypeScript SDK handles document parsing, search, indexing, and validation. This Skill reads parsed content, synthesizes wiki pages, maintains cross-references, and answers questions on top of the deterministic SDK operations. The human curates sources and asks questions.
 
 ## Prerequisites
 
 ```bash
-# Install the CLI (one-time, from skill directory)
-cd ~/.agents/skills/llm-wiki/cli && pip install -e .
+# Install the SDK (one-time)
+cd ~/.agents/skills/llm-wiki/sdk && npm install && npm run build
 ```
 
 ## Commands
@@ -31,38 +29,38 @@ cd ~/.agents/skills/llm-wiki/cli && pip install -e .
 ## Architecture
 
 ```
-User drops file ──▶ CLI (parse) ──▶ clean .md ──▶ Skill (LLM) ──▶ wiki pages
-                    deterministic    in raw/       non-deterministic  in wiki/
+User drops file ──▶ SDK (parse/index) ──▶ clean .md ──▶ Skill (LLM) ──▶ wiki pages
+                    deterministic           in sources/    non-deterministic  in concepts/
 ```
 
 Three wiki layers:
-- **`raw/`** — parsed source documents (CLI writes, LLM reads, never modifies)
-- **`wiki/`** — LLM-generated pages (entities, concepts, sources, comparisons, queries)
-- **`CLAUDE.md`** — wiki schema and conventions
+- **`sources/`** — parsed source documents (SDK writes, LLM reads, never modifies)
+- **`concepts/`** — LLM-generated pages (entities, concepts, references, queries)
+- **`references/`** — external links and citations
 
-### CLI Commands (deterministic — call via Bash)
+### SDK Operations (deterministic — use the SDK via Node.js)
 
-| CLI Command | What it does | Output |
-|-------------|-------------|--------|
-| `llm-wiki init <path>` | Scaffold project structure | JSON `{wiki_root, name, status}` |
-| `llm-wiki parse <file\|dir>` | Convert documents to markdown via MarkItDown | JSON `{parsed, failed, skipped}` |
-| `llm-wiki index` | Rebuild `wiki/index.md` + BM25 search index | JSON `{catalog_entries, indexed_documents}` |
-| `llm-wiki search <query>` | BM25 ranked search with snippets | JSON array of `{path, score, title, snippet}` |
-| `llm-wiki validate` | Check frontmatter, dead links, structure | JSON `{valid, errors, warnings}` |
-| `llm-wiki list [--raw]` | List pages with metadata | JSON array of page objects |
-| `llm-wiki status` | Wiki stats and staleness | JSON `{raw_documents, wiki_pages, ...}` |
+```js
+import { KnowledgeBase, OpenAIProvider } from "@llm-wiki/sdk";
 
-All CLI commands: `--root <path>` to override wiki root discovery. JSON to stdout, logs to stderr.
+const kb = await KnowledgeBase.create({ root: "<wiki-root>", name: "<name>" });
+await kb.ingest({ path: "<file>" });
+await kb.search("<query>");
+await kb.validate();
+await kb.status();
+```
 
 ### Skill Operations (LLM intelligence — this file defines these)
 
-| Skill Operation | Uses CLI | Then LLM does |
+All Skill operations use `mcp__node_repl_js` to execute SDK calls, then apply LLM intelligence on top.
+
+| Skill Operation | Uses SDK | Then LLM does |
 |----------------|----------|---------------|
-| **init** | `llm-wiki init` | Ask user about wiki domain, customize CLAUDE.md |
-| **ingest** | `llm-wiki parse` + `llm-wiki index` | Synthesize wiki pages, update cross-references |
-| **query** | `llm-wiki search` | Read pages, synthesize answer with citations |
-| **lint** | `llm-wiki validate` + `llm-wiki search` | Find contradictions, suggest improvements |
-| **status** | `llm-wiki status` | Present human-friendly summary |
+| **init** | `KnowledgeBase.create()` | Ask user about wiki domain, customize scope |
+| **ingest** | `kb.ingest()` + `kb.reindex()` | Synthesize wiki pages, update cross-references |
+| **query** | `kb.search()` | Read pages, synthesize answer with citations |
+| **lint** | `kb.validate()` + `kb.status()` | Find contradictions, suggest improvements |
+| **status** | `kb.status()` | Present human-friendly summary |
 
 ---
 
@@ -70,12 +68,13 @@ All CLI commands: `--root <path>` to override wiki root discovery. JSON to stdou
 
 ### Process
 
-1. **Scaffold via CLI**:
-   ```bash
-   llm-wiki init <path> --name "<name>" --description "<description>"
+1. **Scaffold via SDK**:
+   Run through `mcp__node_repl_js`:
+   ```js
+   const kb = await KnowledgeBase.create({ root: "<path>", name: "<name>", description: "<description>" });
    ```
 2. **Ask user**: What is this wiki about? What domain? Key topics?
-3. **Customize CLAUDE.md**: Update the generated schema with domain-specific context, key entities, and scope
+3. **Customize scope**: Write a summary of domain context, key entities, and scope to the wiki root
 4. Git init if not already a repo
 
 ---
@@ -86,13 +85,13 @@ The primary operation. A single source may touch 10-15 wiki pages.
 
 ### Process
 
-1. **Parse via CLI** (deterministic):
-   ```bash
-   llm-wiki --root <wiki-root> parse <source-file>
+1. **Parse via SDK** (deterministic):
+   ```js
+   const result = await kb.ingest({ path: "<source-file>" });
    ```
-   This converts PDF/DOCX/HTML/etc → markdown in `raw/` with YAML frontmatter.
+   This converts PDF/DOCX/HTML/etc → markdown in `sources/` with YAML frontmatter.
 
-2. **Read parsed content**: Read the `.md` file from `raw/` that the CLI created.
+2. **Read parsed content**: Read the `.md` file from `sources/` that the SDK created.
 
 3. **Discuss with user** (interactive mode):
    - Present 3-5 key takeaways from the source
@@ -100,21 +99,21 @@ The primary operation. A single source may touch 10-15 wiki pages.
    - Skip if user said "just process it" or batch mode
 
 4. **LLM synthesis** (create/update wiki pages):
-   a. **Source summary** → `wiki/sources/{slug}.md` with frontmatter, summary, key claims
-   b. **Entity pages** → `wiki/entities/` — create or update for each significant entity
-   c. **Concept pages** → `wiki/concepts/` — create or update for abstract ideas
-   d. **Overview** → update `wiki/overview.md` if the source changes the big picture
+   a. **Source summary** → `concepts/{slug}.md` with frontmatter, summary, key claims
+   b. **Entity pages** → create or update for each significant entity
+   c. **Concept pages** → create or update for abstract ideas
+   d. **Overview** → update overview if the source changes the big picture
    e. **Cross-references** → add links between related pages
 
-5. **Rebuild index via CLI**:
-   ```bash
-   llm-wiki --root <wiki-root> index
+5. **Rebuild index via SDK**:
+   ```js
+   await kb.reindex();
    ```
 
-6. **Append to log** → `wiki/log.md`:
+6. **Append to log**:
    ```
    ## [YYYY-MM-DD] ingest | {Source Title}
-   - Source: raw/{filename}
+   - Source: sources/{filename}
    - Created: {list of new pages}
    - Updated: {list of updated pages}
    - Key additions: {1-2 sentence summary}
@@ -124,11 +123,7 @@ The primary operation. A single source may touch 10-15 wiki pages.
 
 ### Batch Ingest
 
-```bash
-# Parse all files in a directory
-llm-wiki --root <wiki-root> parse <directory> --recursive
-```
-Then process each parsed file through steps 2-6. Skip interactive discussion.
+Process multiple files through steps 1-6. Skip interactive discussion.
 
 ---
 
@@ -136,11 +131,10 @@ Then process each parsed file through steps 2-6. Skip interactive discussion.
 
 ### Process
 
-1. **Search via CLI** to find relevant pages:
-   ```bash
-   llm-wiki --root <wiki-root> search "<query>" --limit 10
+1. **Search via SDK** to find relevant pages:
+   ```js
+   const results = await kb.search("<query>", { limit: 10 });
    ```
-   Parse the JSON output to get paths and snippets.
 
 2. **Read relevant pages**: Follow the paths from search results, read full content.
 
@@ -149,14 +143,14 @@ Then process each parsed file through steps 2-6. Skip interactive discussion.
 4. **Choose output format**:
    - Simple factual → text response
    - Comparison → markdown table
-   - Deep analysis → offer to file in `wiki/queries/`
+   - Deep analysis → offer to file in `concepts/queries/`
 
-5. **File if valuable**: Save substantial answers to `wiki/queries/{slug}.md`, then:
-   ```bash
-   llm-wiki --root <wiki-root> index
+5. **File if valuable**: Save substantial answers, then:
+   ```js
+   await kb.reindex();
    ```
 
-6. **Log** → append to `wiki/log.md`
+6. **Log** → append to `log.md`
 
 ---
 
@@ -164,16 +158,15 @@ Then process each parsed file through steps 2-6. Skip interactive discussion.
 
 ### Process
 
-1. **Structural check via CLI**:
-   ```bash
-   llm-wiki --root <wiki-root> validate
+1. **Structural check via SDK**:
+   ```js
+   const report = await kb.validate();
    ```
-   Parse JSON for errors (dead links, missing frontmatter, missing dirs).
+   Parse errors (dead links, missing frontmatter, missing dirs).
 
-2. **Get wiki status via CLI**:
-   ```bash
-   llm-wiki --root <wiki-root> status
-   llm-wiki --root <wiki-root> list
+2. **Get wiki status via SDK**:
+   ```js
+   const status = await kb.status();
    ```
 
 3. **LLM semantic checks** (read pages, apply judgment):
@@ -192,23 +185,20 @@ Then process each parsed file through steps 2-6. Skip interactive discussion.
 
 ## Status (`/llm-wiki status`)
 
-```bash
-# Get raw stats from CLI
-llm-wiki --root <wiki-root> status
+```js
+const status = await kb.status();
 ```
 
-Parse the JSON and present a human-friendly summary:
+Present a human-friendly summary:
 
 ```
 ## {Wiki Name} — Status
 
-Sources:     {N} documents in raw/
-Wiki pages:  {N} total ({entities} entities, {concepts} concepts, ...)
-Word count:  ~{N}K words
-Index:       {stale/current}
+Sources:     {N} documents in sources/
+Wiki pages:  {N} total ({concepts} concepts, ...)
 Search:      {available/not built}
 
-Recent activity (from wiki/log.md):
+Recent activity (from log.md):
 - ...
 ```
 
@@ -225,8 +215,8 @@ type: entity|concept|source|comparison|query|overview
 created: YYYY-MM-DD
 updated: YYYY-MM-DD
 sources:
-  - raw/paper1.md
-  - raw/article2.md
+  - sources/paper1.md
+  - sources/article2.md
 tags:
   - topic1
   - topic2
@@ -234,7 +224,7 @@ tags:
 ```
 
 ### Linking
-- Standard markdown: `[Page Title](../entities/page-name.md)`
+- Standard markdown: `[Page Title](concepts/page-name.md)`
 - Cite sources: "claim [source-name]"
 - Cross-reference liberally
 
@@ -242,19 +232,17 @@ tags:
 
 ## Supported Source Formats
 
-Via Microsoft MarkItDown (`markitdown[all]`):
+Via the SDK's composite parser (jsdom, Readability, mammoth, pdf-parse, node-pptx-parser, turndown):
 - **Documents**: PDF, DOCX, PPTX, XLSX
 - **Web**: HTML, HTM
 - **Text**: TXT, CSV, JSON, XML, MD
-- **Notebooks**: Jupyter (.ipynb)
-- **Media**: JPG, PNG, GIF, WebP (EXIF/OCR), WAV, MP3
-- **Archives**: ZIP (recursive)
+- **Buffers**: in-memory content with metadata
 
 ---
 
 ## Principles
 
-1. **CLI does grunt work; LLM does thinking.** Parsing, searching, indexing, validating are deterministic — CLI handles them. Synthesis, cross-referencing, answering are intelligent — Skill handles them.
+1. **SDK does grunt work; LLM does thinking.** Parsing, searching, indexing, validating are deterministic — SDK handles them. Synthesis, cross-referencing, answering are intelligent — Skill handles them.
 2. **The wiki is a persistent, compounding artifact.** Every source and every query makes it richer.
 3. **The LLM writes; the human curates.** Source, explore, ask. The LLM does the bookkeeping.
 4. **File valuable outputs back into the wiki.** Good answers shouldn't disappear into chat history.
