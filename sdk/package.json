@@ -14,9 +14,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "demo:create-kb": "npm run build && node examples/create-knowledge-base.mjs",
-    "test": "npm run build && node --test test/*.test.js",
+    "test": "npm run build && node --test test/knowledge-base.test.js test/source-parsers.test.js test/document-parsers.test.js test/providers.test.js test/validation.test.js test/filesystem-store.test.js test/sqlite-store.test.js test/sqlite-kb-e2e.test.js",
+    "test:pg": "npm run build && node --test test/postgres-kb-e2e.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepare": "husky",
     "lint": "eslint . --max-warnings 0",
     "lint:fix": "eslint . --fix",
     "fmt": "prettier --write 'src/**/*.ts' 'test/**/*.js'",

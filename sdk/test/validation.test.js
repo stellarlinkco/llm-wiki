@@ -108,8 +108,8 @@ test("frontmatter serializer escapes newlines in parser-derived scalar values", 
   const sourceDoc = await readFile(join(root, "sources", "newline-title.md"), "utf8");
 
   assert.deepEqual(changeSet.failed, []);
-  assert.doesNotMatch(sourceDoc, /^source_path: spoofed$/m);
-  assert.match(sourceDoc, /^source_path: newline-title\.html$/m);
+  assert.doesNotMatch(sourceDoc, /^resource: spoofed$/m);
+  assert.match(sourceDoc, /^resource: newline-title\.html$/m);
 });
 
 test("frontmatter serializer quotes YAML indicator scalars", async () => {

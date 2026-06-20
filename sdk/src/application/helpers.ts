@@ -175,7 +175,7 @@ export function frontmatterMetadata(metadata: Record<string, unknown> | undefine
   }
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(metadata)) {
-    if (["type", "title", "description", "resource", "tags", "timestamp", "source_path", "source_id", "content_hash"].includes(key)) {
+    if (["type", "title", "description", "resource", "tags", "timestamp", "source_path", "source_paths", "source_id", "content_hash"].includes(key)) {
       continue;
     }
     out[key] = frontmatterValue(value);

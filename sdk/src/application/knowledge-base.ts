@@ -327,7 +327,8 @@ export class KnowledgeBase {
         if (targetWithoutFragment === "") {
           continue;
         }
-        if (typeof parsed.frontmatter.source_path === "string" && hasUrlScheme(parsed.frontmatter.source_path)) {
+        const sourceUrl = typeof parsed.frontmatter.resource === "string" ? parsed.frontmatter.resource : parsed.frontmatter.source_path;
+        if (typeof sourceUrl === "string" && hasUrlScheme(sourceUrl)) {
           continue;
         }
         const targetRel = targetWithoutFragment.startsWith("/")
@@ -406,7 +407,6 @@ export class KnowledgeBase {
       resource,
       tags: Array.isArray(existingFrontmatter.tags) ? existingFrontmatter.tags.map(String) : [],
       timestamp: now,
-      source_path: resource,
       source_id: sha256(identity),
       content_hash: sha256(parsedSource.body),
     };
@@ -469,9 +469,10 @@ export class KnowledgeBase {
     if (
       parsed.frontmatter.source_id === sha256(sourceIdentity) ||
       parsed.frontmatter.source_path === sourceIdentity ||
+      parsed.frontmatter.resource === sourceIdentity ||
       (hasUrlScheme(resource) &&
         parsed.frontmatter.source_id === undefined &&
-        parsed.frontmatter.source_path === resource)
+        (parsed.frontmatter.source_path === resource || parsed.frontmatter.resource === resource))
     ) {
       return candidate;
     }

@@ -49,7 +49,7 @@ test("ingest creates a conformant OKF source concept and searchable index withou
   const sourceDoc = await readFile(join(root, "sources", "architecture.md"), "utf8");
   assert.match(sourceDoc, /^---\ntype: Source Document\n/m);
   assert.match(sourceDoc, /title: Architecture/);
-  assert.match(sourceDoc, /source_path:/);
+  assert.match(sourceDoc, /resource:/);
   assert.match(sourceDoc, /content_hash:/);
 
   const validation = await kb.validate();

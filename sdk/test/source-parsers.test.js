@@ -477,7 +477,6 @@ test("URL ingest redacts credentials and query tokens from source frontmatter", 
 
     assert.deepEqual(changeSet.failed, []);
     assert.match(sourceDoc, /^resource: "https:\/\/public\.example\/report\.txt"$/m);
-    assert.match(sourceDoc, /^source_path: "https:\/\/public\.example\/report\.txt"$/m);
     assert.doesNotMatch(sourceDoc, /secret|token=|user:/);
   });
 });
