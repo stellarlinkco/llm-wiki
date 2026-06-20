@@ -13,7 +13,7 @@ function quoteTableIdentifier(tableName: string): string {
       `Unsafe PostgreSQL table identifier '${tableName}'. Use an identifier such as '${DEFAULT_TABLE}' or 'schema.${DEFAULT_TABLE}'.`,
     );
   }
-  return parts.map((part) => `"${part}"`).join(".");
+  return parts.map((part) => `"${part.toLowerCase()}"`).join(".");
 }
 
 interface PgQueryable {

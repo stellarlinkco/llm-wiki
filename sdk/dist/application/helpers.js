@@ -75,8 +75,21 @@ export function boundedSlug(slug, identity) {
 export function sha256(content) {
     return createHash("sha256").update(content).digest("hex");
 }
-function sha256Bytes(content) {
-    return createHash("sha256").update(content).digest("hex");
+function sha256Base64EncodedBytes(content) {
+    const hash = createHash("sha256");
+    const bytes = Buffer.isBuffer(content)
+        ? content
+        : Buffer.from(content.buffer, content.byteOffset, content.byteLength);
+    const completeLength = bytes.byteLength - (bytes.byteLength % 3);
+    const chunkSize = 48 * 1024;
+    for (let offset = 0; offset < completeLength; offset += chunkSize) {
+        const end = Math.min(offset + chunkSize, completeLength);
+        hash.update(bytes.subarray(offset, end).toString("base64"));
+    }
+    if (completeLength < bytes.byteLength) {
+        hash.update(bytes.subarray(completeLength).toString("base64"));
+    }
+    return hash.digest("hex");
 }
 export function toParserInput(input) {
     if (typeof input !== "string") {
@@ -103,7 +116,9 @@ export function sourceIdentity(input) {
     if (input.title !== undefined) {
         return input.title;
     }
-    return input.kind === "text" ? `${input.kind}:${sha256(input.text)}` : `${input.kind}:${sha256Bytes(input.buffer)}`;
+    return input.kind === "text"
+        ? `${input.kind}:${sha256(input.text)}`
+        : `${input.kind}:${sha256Base64EncodedBytes(input.buffer)}`;
 }
 export function publicResource(input) {
     if (typeof input === "string") {

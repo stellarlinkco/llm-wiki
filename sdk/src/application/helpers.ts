@@ -81,8 +81,24 @@ export function sha256(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
-function sha256Bytes(content: Uint8Array): string {
-  return createHash("sha256").update(content).digest("hex");
+function sha256Base64EncodedBytes(content: Uint8Array): string {
+  const hash = createHash("sha256");
+  const bytes = Buffer.isBuffer(content)
+    ? content
+    : Buffer.from(content.buffer, content.byteOffset, content.byteLength);
+  const completeLength = bytes.byteLength - (bytes.byteLength % 3);
+  const chunkSize = 48 * 1024;
+
+  for (let offset = 0; offset < completeLength; offset += chunkSize) {
+    const end = Math.min(offset + chunkSize, completeLength);
+    hash.update(bytes.subarray(offset, end).toString("base64"));
+  }
+
+  if (completeLength < bytes.byteLength) {
+    hash.update(bytes.subarray(completeLength).toString("base64"));
+  }
+
+  return hash.digest("hex");
 }
 
 export function toParserInput(input: string | ParserSourceInput): string | ParserSourceInput {
@@ -111,7 +127,9 @@ export function sourceIdentity(input: string | ParserSourceInput): string {
   if (input.title !== undefined) {
     return input.title;
   }
-  return input.kind === "text" ? `${input.kind}:${sha256(input.text)}` : `${input.kind}:${sha256Bytes(input.buffer)}`;
+  return input.kind === "text"
+    ? `${input.kind}:${sha256(input.text)}`
+    : `${input.kind}:${sha256Base64EncodedBytes(input.buffer)}`;
 }
 
 export function publicResource(input: string | ParserSourceInput): string {

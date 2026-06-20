@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   test,
   assert,
@@ -165,10 +166,12 @@ test("PDF parser construction failures are wrapped with source context", async (
   }
 });
 
-test("anonymous binary buffer identity avoids full-payload base64 copies before parsing", async () => {
+test("anonymous binary buffer identity preserves legacy base64-derived source_id without full-payload copies", async () => {
   const pdf = pdfFixture("Anonymous PDF byte identity stays bounded.");
   const originalFrom = Buffer.from;
   const copiedInputs = [];
+  const legacyBufferIdentityHash = createHash("sha256").update(pdf.toString("base64")).digest("hex");
+  const expectedSourceId = createHash("sha256").update(`buffer:${legacyBufferIdentityHash}`).digest("hex");
 
   setPdfParserFactoryForTesting(async () => ({
     async getText() {
@@ -196,6 +199,8 @@ test("anonymous binary buffer identity avoids full-payload base64 copies before 
     });
     assert.deepEqual(result.failed, []);
     assert.equal(result.created.length, 1);
+    const document = await readFile(join(root, result.created[0]), "utf8");
+    assert.match(document, new RegExp(`source_id: ${expectedSourceId}`));
   } finally {
     Buffer.from = originalFrom;
     setPdfParserFactoryForTesting(undefined);

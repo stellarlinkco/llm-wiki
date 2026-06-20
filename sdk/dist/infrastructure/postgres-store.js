@@ -7,7 +7,7 @@ function quoteTableIdentifier(tableName) {
     if (parts.length === 0 || parts.length > 2 || parts.some((part) => !SAFE_IDENTIFIER_PART.test(part))) {
         throw new Error(`Unsafe PostgreSQL table identifier '${tableName}'. Use an identifier such as '${DEFAULT_TABLE}' or 'schema.${DEFAULT_TABLE}'.`);
     }
-    return parts.map((part) => `"${part}"`).join(".");
+    return parts.map((part) => `"${part.toLowerCase()}"`).join(".");
 }
 /**
  * PostgreSQL-backed {@link BundleStore}.

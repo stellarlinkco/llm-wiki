@@ -31,8 +31,12 @@ test("PostgresBundleStore validates and quotes custom table identifiers", async 
 
   await new PostgresBundleStore(db, "tenant://acme/kb", "select").init();
   await new PostgresBundleStore(db, "tenant://acme/kb", "tenant.docs").init();
+  await new PostgresBundleStore(db, "tenant://acme/kb", "OKF_DOCUMENTS").init();
+  await new PostgresBundleStore(db, "tenant://acme/kb", "Public.docs").init();
   assert.match(queries[0], /CREATE TABLE IF NOT EXISTS "select"/);
   assert.match(queries[1], /CREATE TABLE IF NOT EXISTS "tenant"\."docs"/);
+  assert.match(queries[2], /CREATE TABLE IF NOT EXISTS "okf_documents"/);
+  assert.match(queries[3], /CREATE TABLE IF NOT EXISTS "public"\."docs"/);
 });
 const PG_URL = process.env.PG_CONNECTION_STRING ?? "postgresql://localhost:5432/llm_wiki_test";
 
