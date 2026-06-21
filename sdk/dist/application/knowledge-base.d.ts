@@ -1,4 +1,4 @@
-import type { ChangeSet, ConceptDocument, CrawlOptions, ExportOptions, IngestOptions, KnowledgeBaseOptions, ListConceptOptions, QueryAnswer, QueryOptions, SearchOptions, SearchResult, StatusReport, SynthesizeOptions, ValidationReport, WriteConceptOptions, WriteIndexOptions } from "../domain/types.js";
+import type { ChangeSet, ConceptDocument, CrawlOptions, ExportOptions, IngestManyOptions, IngestOptions, KnowledgeBaseOptions, ListConceptOptions, QueryAnswer, QueryOptions, SearchOptions, SearchResult, StatusReport, SynthesizeOptions, ValidationReport, WriteConceptOptions, WriteIndexOptions } from "../domain/types.js";
 export declare class KnowledgeBase {
     private readonly root;
     private readonly llm;
@@ -9,6 +9,7 @@ export declare class KnowledgeBase {
     static create(options: KnowledgeBaseOptions): Promise<KnowledgeBase>;
     static open(options: KnowledgeBaseOptions): Promise<KnowledgeBase>;
     ingest(options: IngestOptions): Promise<ChangeSet>;
+    ingestMany(options: IngestManyOptions): Promise<ChangeSet>;
     update(options: IngestOptions): Promise<ChangeSet>;
     crawl(options: CrawlOptions): Promise<ChangeSet>;
     writeConcept(options: WriteConceptOptions): Promise<ChangeSet>;
@@ -22,6 +23,7 @@ export declare class KnowledgeBase {
     listConcepts(options?: ListConceptOptions): Promise<ConceptDocument[]>;
     export(options: ExportOptions): Promise<ChangeSet>;
     private writeSource;
+    private finalizeSourceWrite;
     private readConcepts;
     private sourceOutputPath;
     private validateMarkdownDocument;
@@ -32,7 +34,9 @@ export declare class KnowledgeBase {
     private sourceCandidateMatchesIdentity;
     private sourceCandidateMatchesUrlResource;
     private guardedWriteConceptFailures;
-    private guardedUpdateFailures;
+    private emptyIngestManyChangeSet;
+    private mergeChangeSet;
+    private reindexBatch;
     private conceptOutputPath;
     private appendLog;
 }

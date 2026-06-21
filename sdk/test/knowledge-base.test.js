@@ -170,10 +170,356 @@ test("guarded writeConcept reports failed update before dropping frontmatter, he
   assert.equal(changeSet.failed.length, 1);
   assert.equal(changeSet.failed[0].path, "concepts/guarded.md");
   assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
-  assert.match(changeSet.failed[0].error, /frontmatter/i);
   assert.match(changeSet.failed[0].error, /heading/i);
   assert.match(changeSet.failed[0].error, /citation/i);
   assert.equal(await readFile(join(root, "concepts", "guarded.md"), "utf8"), before);
+});
+
+test("guarded writeConcept rejects dropping reference-style bundle citations", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/reference-citation.md",
+    title: "Reference Citation",
+    body: [
+      "# Summary",
+      "",
+      "See [Source][src-ref] for proof.",
+      "",
+      '[src-ref]: sources/reference.md "Primary source"',
+    ].join("\n"),
+  });
+
+  const before = await readFile(join(root, "concepts", "reference-citation.md"), "utf8");
+  const changeSet = await kb.writeConcept({
+    path: "concepts/reference-citation.md",
+    title: "Reference Citation",
+    body: "# Summary\n\nNo reference left.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
+  assert.match(changeSet.failed[0].error, /citation/i);
+  assert.match(changeSet.failed[0].error, /sources\/reference\.md/);
+  assert.equal(await readFile(join(root, "concepts", "reference-citation.md"), "utf8"), before);
+});
+
+test("guarded writeConcept rejects dropping second-level headings", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/second-level-heading.md",
+    title: "Second Level Heading",
+    body: "# Summary\n\n## Details\n\nKeep this subsection.\n",
+  });
+
+  const before = await readFile(join(root, "concepts", "second-level-heading.md"), "utf8");
+  const changeSet = await kb.writeConcept({
+    path: "concepts/second-level-heading.md",
+    title: "Second Level Heading",
+    body: "# Summary\n\nDetails removed without a heading.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
+  assert.match(changeSet.failed[0].error, /heading/i);
+  assert.match(changeSet.failed[0].error, /Details/);
+  assert.equal(await readFile(join(root, "concepts", "second-level-heading.md"), "utf8"), before);
+});
+
+test("guarded writeConcept rejects dropping bare bundle path citations", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/bare-citation.md",
+    title: "Bare Citation",
+    body: "# Evidence\n\nSee sources/evidence.md for proof.\n",
+  });
+
+  const before = await readFile(join(root, "concepts", "bare-citation.md"), "utf8");
+  const changeSet = await kb.writeConcept({
+    path: "concepts/bare-citation.md",
+    title: "Bare Citation",
+    body: "# Evidence\n\nNo citation left.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
+  assert.match(changeSet.failed[0].error, /citation/i);
+  assert.match(changeSet.failed[0].error, /sources\/evidence\.md/);
+  assert.equal(await readFile(join(root, "concepts", "bare-citation.md"), "utf8"), before);
+});
+
+test("guarded writeConcept allows removing fenced code headings while preserving real top-level headings", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/fenced-example.md",
+    title: "Fenced Example",
+    body: "# Real\n\n```md\n# Example\n```\n",
+  });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/fenced-example.md",
+    title: "Fenced Example",
+    body: "# Real\n\nNo code block now.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.deepEqual(changeSet.updated, ["concepts/fenced-example.md"]);
+  assert.match(await readFile(join(root, "concepts", "fenced-example.md"), "utf8"), /No code block now\./);
+});
+
+test("guarded writeConcept allows explicit frontmatter and title updates", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/explicit-meta.md",
+    title: "Old Title",
+    frontmatter: { owner: "platform" },
+    body: "# Summary\n\nExisting body.",
+  });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/explicit-meta.md",
+    title: "New Title",
+    frontmatter: { owner: "data-team" },
+    body: "# Summary\n\nUpdated body.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.deepEqual(changeSet.updated, ["concepts/explicit-meta.md"]);
+  const updated = await readFile(join(root, "concepts", "explicit-meta.md"), "utf8");
+  assert.match(updated, /^title: New Title$/m);
+  assert.match(updated, /^owner: data-team$/m);
+});
+
+test("guarded writeConcept allows bundle citation path normalization", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/normalized-citation.md",
+    title: "Normalized Citation",
+    body: "# Evidence\n\nSee [Src](/sources/a.md).\n",
+  });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/normalized-citation.md",
+    title: "Normalized Citation",
+    body: "# Evidence\n\nSee [Src](sources/a.md).\n",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.deepEqual(changeSet.updated, ["concepts/normalized-citation.md"]);
+});
+
+test("guarded writeConcept allows description updates via frontmatter", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/frontmatter-description.md",
+    title: "Description Guard",
+    description: "Old description.",
+    body: "# Summary\n\nExisting body.",
+  });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/frontmatter-description.md",
+    title: "Description Guard",
+    frontmatter: { description: "New description." },
+    body: "# Summary\n\nExisting body.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.match(
+    await readFile(join(root, "concepts", "frontmatter-description.md"), "utf8"),
+    /^description: New description\.$/m,
+  );
+});
+
+test("guarded writeConcept allows source path updates via frontmatter", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/frontmatter-sources.md",
+    title: "Source Paths",
+    sourcePaths: ["sources/a.md"],
+    body: "# Summary\n\nExisting body.",
+  });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/frontmatter-sources.md",
+    title: "Source Paths",
+    frontmatter: { source_paths: ["sources/b.md"] },
+    body: "# Summary\n\nExisting body.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.match(await readFile(join(root, "concepts", "frontmatter-sources.md"), "utf8"), /sources\/b\.md/);
+});
+
+test("guarded writeConcept accepts scalar YAML tags when update omits tags", async () => {
+  const root = await tempRoot();
+  await mkdir(join(root, "concepts"), { recursive: true });
+  await writeFile(
+    join(root, "concepts", "scalar-tags.md"),
+    [
+      "---",
+      "type: Concept",
+      "title: Scalar Tags",
+      "tags: preserve",
+      "timestamp: 2020-01-01T00:00:00.000Z",
+      "---",
+      "",
+      "# Summary",
+      "",
+      "Existing body.",
+    ].join("\n"),
+    "utf8",
+  );
+
+  const kb = await KnowledgeBase.create({ root });
+  const changeSet = await kb.writeConcept({
+    path: "concepts/scalar-tags.md",
+    title: "Scalar Tags",
+    body: "# Summary\n\nUpdated body.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.match(await readFile(join(root, "concepts", "scalar-tags.md"), "utf8"), /Updated body\./);
+});
+
+test("guarded writeConcept ignores bare bundle paths inside fenced code blocks", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/fenced-citation.md",
+    title: "Fenced Citation",
+    body: "# Main\n\n```md\nsources/example.md\n```\n",
+  });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/fenced-citation.md",
+    title: "Fenced Citation",
+    body: "# Main\n\nNo code block now.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.deepEqual(changeSet.updated, ["concepts/fenced-citation.md"]);
+});
+
+test("guarded writeConcept ignores bare bundle paths inside inline code", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/inline-citation.md",
+    title: "Inline Citation",
+    body: "# Main\n\nExample: `sources/example.md`\n",
+  });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/inline-citation.md",
+    title: "Inline Citation",
+    body: "# Main\n\nNo inline code now.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.deepEqual(changeSet.updated, ["concepts/inline-citation.md"]);
+});
+
+test("guarded writeConcept rejects dropping HTML bundle citations", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/html-citation.md",
+    title: "HTML Citation",
+    body: '# Summary\n\nSee <a href="sources/html-source.md">Source</a>.\n',
+  });
+
+  const before = await readFile(join(root, "concepts", "html-citation.md"), "utf8");
+  const changeSet = await kb.writeConcept({
+    path: "concepts/html-citation.md",
+    title: "HTML Citation",
+    body: "# Summary\n\nNo HTML citation left.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.match(changeSet.failed[0].error, /citation/i);
+  assert.match(changeSet.failed[0].error, /sources\/html-source\.md/);
+  assert.equal(await readFile(join(root, "concepts", "html-citation.md"), "utf8"), before);
+});
+
+test("guarded writeConcept allows type updates via frontmatter", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/frontmatter-type.md",
+    type: "Concept",
+    title: "Frontmatter Type",
+    body: "# Summary\n\nExisting body.",
+  });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/frontmatter-type.md",
+    title: "Frontmatter Type",
+    frontmatter: { type: "VendorSpecificThing" },
+    body: "# Summary\n\nExisting body.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.match(await readFile(join(root, "concepts", "frontmatter-type.md"), "utf8"), /^type: VendorSpecificThing$/m);
+});
+
+test("guarded writeConcept allows tag updates via frontmatter", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/frontmatter-tags.md",
+    title: "Frontmatter Tags",
+    tags: ["old-tag"],
+    body: "# Summary\n\nExisting body.",
+  });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/frontmatter-tags.md",
+    title: "Frontmatter Tags",
+    frontmatter: { tags: ["new-tag"] },
+    body: "# Summary\n\nExisting body.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.match(await readFile(join(root, "concepts", "frontmatter-tags.md"), "utf8"), /new-tag/);
 });
 
 test("guarded writeConcept preserves an existing open OKF type when update omits type", async () => {
@@ -184,27 +530,24 @@ test("guarded writeConcept preserves an existing open OKF type when update omits
     path: "concepts/vendor-open-type.md",
     type: "VendorSpecificThing",
     title: "Vendor Open Type",
-    body: "Existing body.",
+    body: "# Overview\n\nExisting body.",
   });
 
-  const before = await readFile(join(root, "concepts", "vendor-open-type.md"), "utf8");
   const changeSet = await kb.writeConcept({
     path: "concepts/vendor-open-type.md",
     title: "Vendor Open Type",
-    body: "Existing body with a guarded addition.",
+    body: "# Overview\n\nExisting body with a guarded addition.",
     guardedUpdate: true,
   });
 
-  assert.deepEqual(changeSet.updated, []);
-  assert.equal(changeSet.failed.length, 1);
-  assert.equal(changeSet.failed[0].path, "concepts/vendor-open-type.md");
-  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
-  assert.match(changeSet.failed[0].error, /frontmatter/i);
-  assert.match(changeSet.failed[0].error, /type/i);
-  assert.equal(await readFile(join(root, "concepts", "vendor-open-type.md"), "utf8"), before);
+  assert.deepEqual(changeSet.failed, []);
+  assert.deepEqual(changeSet.updated, ["concepts/vendor-open-type.md"]);
+  const updated = await readFile(join(root, "concepts", "vendor-open-type.md"), "utf8");
+  assert.match(updated, /^type: VendorSpecificThing$/m);
+  assert.match(updated, /guarded addition/);
 });
 
-test("guarded writeConcept rejects dropping existing tags", async () => {
+test("guarded writeConcept preserves existing tags when update omits tags", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
 
@@ -212,14 +555,39 @@ test("guarded writeConcept rejects dropping existing tags", async () => {
     path: "concepts/tagged.md",
     title: "Tagged",
     tags: ["preserve"],
-    body: "Existing body.",
+    body: "# Summary\n\nExisting body.",
   });
 
-  const before = await readFile(join(root, "concepts", "tagged.md"), "utf8");
   const changeSet = await kb.writeConcept({
     path: "concepts/tagged.md",
     title: "Tagged",
-    body: "Existing body with a guarded addition.",
+    body: "# Summary\n\nExisting body with a guarded addition.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.deepEqual(changeSet.updated, ["concepts/tagged.md"]);
+  const updated = await readFile(join(root, "concepts", "tagged.md"), "utf8");
+  assert.match(updated, /^tags: \[preserve\]$/m);
+});
+
+test("guarded writeConcept rejects explicit tag clearing", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/tagged-clear.md",
+    title: "Tagged Clear",
+    tags: ["preserve"],
+    body: "# Summary\n\nExisting body.",
+  });
+
+  const before = await readFile(join(root, "concepts", "tagged-clear.md"), "utf8");
+  const changeSet = await kb.writeConcept({
+    path: "concepts/tagged-clear.md",
+    title: "Tagged Clear",
+    tags: [],
+    body: "# Summary\n\nExisting body with a guarded addition.",
     guardedUpdate: true,
   });
 
@@ -227,7 +595,88 @@ test("guarded writeConcept rejects dropping existing tags", async () => {
   assert.equal(changeSet.failed.length, 1);
   assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
   assert.match(changeSet.failed[0].error, /tags/i);
-  assert.equal(await readFile(join(root, "concepts", "tagged.md"), "utf8"), before);
+  assert.equal(await readFile(join(root, "concepts", "tagged-clear.md"), "utf8"), before);
+});
+
+test("guarded writeConcept rejects shrinking schema-like fenced sections", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/schema-guarded.md",
+    title: "Schema Guarded",
+    body: [
+      "# Summary",
+      "",
+      "Overview text.",
+      "",
+      "## Schema",
+      "",
+      "```json",
+      "{",
+      '  "type": "object",',
+      '  "properties": {',
+      '    "name": { "type": "string" }',
+      "  }",
+      "}",
+      "```",
+    ].join("\n"),
+  });
+
+  const before = await readFile(join(root, "concepts", "schema-guarded.md"), "utf8");
+  const changeSet = await kb.writeConcept({
+    path: "concepts/schema-guarded.md",
+    title: "Schema Guarded",
+    body: [
+      "# Summary",
+      "",
+      "Overview text.",
+      "",
+      "## Schema",
+      "",
+      "```json",
+      "{",
+      '  "type": "object"',
+      "}",
+      "```",
+    ].join("\n"),
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.equal(changeSet.failed[0].path, "concepts/schema-guarded.md");
+  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
+  assert.match(changeSet.failed[0].error, /schema/i);
+  assert.equal(await readFile(join(root, "concepts", "schema-guarded.md"), "utf8"), before);
+});
+
+test("writeConcept update preserves existing custom frontmatter and open type without guardedUpdate", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/custom-update.md",
+    type: "VendorSpecificThing",
+    title: "Custom Update",
+    tags: ["keep"],
+    frontmatter: { owner: "platform" },
+    body: "Existing body.",
+  });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/custom-update.md",
+    title: "Custom Update",
+    body: "Updated body.",
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.deepEqual(changeSet.updated, ["concepts/custom-update.md"]);
+  const updated = await readFile(join(root, "concepts", "custom-update.md"), "utf8");
+  assert.match(updated, /^type: VendorSpecificThing$/m);
+  assert.match(updated, /^owner: platform$/m);
+  assert.match(updated, /^tags: \[keep\]$/m);
+  assert.match(updated, /Updated body\./);
 });
 
 test("guarded writeConcept rejects dropping root-relative and relative bundle citations", async () => {
@@ -253,8 +702,8 @@ test("guarded writeConcept rejects dropping root-relative and relative bundle ci
   assert.equal(changeSet.failed[0].path, "concepts/bundle-citations.md");
   assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
   assert.match(changeSet.failed[0].error, /citation/i);
-  assert.match(changeSet.failed[0].error, /\/sources\/root\.md/);
-  assert.match(changeSet.failed[0].error, /\.\.\/sources\/relative\.md/);
+  assert.match(changeSet.failed[0].error, /sources\/root\.md/);
+  assert.match(changeSet.failed[0].error, /sources\/relative\.md/);
   assert.equal(await readFile(join(root, "concepts", "bundle-citations.md"), "utf8"), before);
 });
 
@@ -329,6 +778,32 @@ test("writeIndex creates a bundle entry point listing sources and concepts", asy
   assert.match(indexDoc, /- \[Company Source\]\(sources\/company\.md\) — Source Document/);
   assert.match(indexDoc, /- \[Company Overview\]\(concepts\/company-overview\.md\) — Concept/);
   assert.deepEqual((await kb.validate()).errors, []);
+});
+
+test("writeIndex produces byte-identical index.md on repeated calls with unchanged bundle", async () => {
+  const root = await tempRoot();
+  const sourceRoot = await tempRoot();
+  const source = join(sourceRoot, "company.md");
+  await writeFile(source, "# Company Source\n\nSource body.\n", "utf8");
+
+  const kb = await KnowledgeBase.create({ root });
+  await kb.ingest({ path: source });
+  await kb.writeConcept({
+    path: "concepts/company-overview.md",
+    title: "Company Overview",
+    body: "Concept body.",
+  });
+  const options = {
+    title: "Company Knowledge Base",
+    description: "Generated bundle entry point.",
+  };
+
+  await kb.writeIndex(options);
+  const firstBytes = await readFile(join(root, "index.md"));
+  await kb.writeIndex(options);
+  const secondBytes = await readFile(join(root, "index.md"));
+
+  assert.deepEqual(firstBytes, secondBytes);
 });
 
 test("status reports source documents separately from concept documents", async () => {
@@ -453,6 +928,94 @@ test("synthesize writes LLM-produced concepts from retrieved source context", as
   assert.match(conceptDoc, /^generated_by: llm-wiki-sdk$/m);
   assert.match(conceptDoc, /source_paths: \[sources\/company\.md\]/);
   assert.match(conceptDoc, /StellarLink builds AI knowledge systems/);
+});
+
+test("synthesize uses guardedUpdate when updating an existing concept path", async () => {
+  const root = await tempRoot();
+  const sourceRoot = await tempRoot();
+  const source = join(sourceRoot, "official.md");
+  await writeFile(source, "# Official\n\nStellarLink interfaces are live in public source documents.\n", "utf8");
+  const llm = {
+    async generate() {
+      return {
+        text: JSON.stringify({
+          concepts: [
+            {
+              path: "concepts/interfaces.md",
+              title: "Interfaces",
+              body: "Replacement without the protected heading or citation.",
+            },
+          ],
+        }),
+      };
+    },
+  };
+
+  const kb = await KnowledgeBase.create({ root, llm });
+  await kb.ingest({ path: source });
+  await kb.writeConcept({
+    path: "concepts/interfaces.md",
+    title: "Interfaces",
+    body: "# Protected\n\nKeep [Source](sources/official.md).\n",
+  });
+
+  const before = await readFile(join(root, "concepts", "interfaces.md"), "utf8");
+  const changeSet = await kb.synthesize({
+    query: "StellarLink interfaces",
+    instructions: "Update interfaces concept.",
+    limit: 5,
+  });
+
+  assert.deepEqual(changeSet.created, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.equal(changeSet.failed[0].path, "concepts/interfaces.md");
+  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
+  assert.equal(await readFile(join(root, "concepts", "interfaces.md"), "utf8"), before);
+});
+
+test("synthesize updates an existing concept when guarded metadata changes preserve headings and citations", async () => {
+  const root = await tempRoot();
+  const sourceRoot = await tempRoot();
+  const source = join(sourceRoot, "official.md");
+  await writeFile(source, "# Official\n\nStellarLink interfaces are live in public source documents.\n", "utf8");
+  const llm = {
+    async generate() {
+      return {
+        text: JSON.stringify({
+          concepts: [
+            {
+              path: "concepts/interfaces.md",
+              title: "Updated Interfaces",
+              description: "Refined from source synthesis.",
+              body: "# Protected\n\nKeep [Source](sources/official.md).\n\nAdded detail from synthesis.",
+            },
+          ],
+        }),
+      };
+    },
+  };
+
+  const kb = await KnowledgeBase.create({ root, llm });
+  await kb.ingest({ path: source });
+  await kb.writeConcept({
+    path: "concepts/interfaces.md",
+    title: "Interfaces",
+    description: "Original description.",
+    body: "# Protected\n\nKeep [Source](sources/official.md).\n",
+  });
+
+  const changeSet = await kb.synthesize({
+    query: "StellarLink interfaces",
+    instructions: "Update interfaces concept.",
+    limit: 5,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.deepEqual(changeSet.updated, ["concepts/interfaces.md"]);
+  const updated = await readFile(join(root, "concepts", "interfaces.md"), "utf8");
+  assert.match(updated, /^title: Updated Interfaces$/m);
+  assert.match(updated, /Added detail from synthesis\./);
+  assert.match(updated, /Keep \[Source\]\(sources\/official\.md\)/);
 });
 
 test("synthesize grounds prompts in source documents rather than existing concepts", async () => {

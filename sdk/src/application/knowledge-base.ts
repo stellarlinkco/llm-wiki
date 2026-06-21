@@ -6,6 +6,7 @@ import type {
   ConceptDocument,
   CrawlOptions,
   ExportOptions,
+  IngestManyOptions,
   IngestOptions,
   KnowledgeBaseOptions,
   ListConceptOptions,
@@ -40,6 +41,7 @@ import {
   titleFromPath,
   validateReservedFile,
 } from "../infrastructure/markdown.js";
+import { collectGuardedUpdateFailures, mergeWriteConceptFrontmatter } from "./okf-write-guards.js";
 import { tokenize } from "./search.js";
 import {
   boundedSlug,
@@ -110,6 +112,18 @@ export class KnowledgeBase {
     return this.writeSource(options, "ingest");
   }
 
+  async ingestMany(options: IngestManyOptions): Promise<ChangeSet> {
+    const changeSet = emptyChangeSet("ingest");
+    if (options.paths.length === 0) {
+      return this.emptyIngestManyChangeSet(changeSet);
+    }
+    for (const path of options.paths) {
+      this.mergeChangeSet(changeSet, await this.writeSource({ path }, "ingest", { deferReindex: true }));
+    }
+    await this.reindexBatch(changeSet);
+    return changeSet;
+  }
+
   async update(options: IngestOptions): Promise<ChangeSet> {
     return this.writeSource(options, "update");
   }
@@ -160,21 +174,20 @@ export class KnowledgeBase {
     const outputRel = this.conceptOutputPath(options.path);
     const existed = await this.store.exists(outputRel);
     const now = new Date().toISOString();
-    const frontmatter: OkfFrontmatter = {
-      ...toOkfFrontmatter({ type: options.type ?? "Concept", ...options.frontmatter }),
-      type: options.type ?? "Concept",
-      title: options.title,
-      ...(options.description === undefined ? {} : { description: options.description }),
-      tags: options.tags ?? [],
-      timestamp: now,
-      ...(options.sourcePaths === undefined ? {} : { source_paths: options.sourcePaths }),
-    };
-    const guardFailures = await this.guardedWriteConceptFailures(
+    const existingDocument = existed ? parseMarkdown(await this.store.read(outputRel)) : undefined;
+    const frontmatter = mergeWriteConceptFrontmatter(
+      existingDocument === undefined
+        ? { type: options.type ?? "Concept" }
+        : toOkfFrontmatter(existingDocument.frontmatter),
+      options,
+      now,
+    );
+    const guardFailures = this.guardedWriteConceptFailures(
       options.guardedUpdate === true,
-      existed,
-      outputRel,
+      existingDocument,
       frontmatter,
       options.body,
+      options,
     );
     if (guardFailures.length > 0) {
       changeSet.failed.push({
@@ -255,12 +268,16 @@ export class KnowledgeBase {
     const concepts = conceptsFromSynthesis(response.json ?? response.text);
     for (const concept of concepts) {
       try {
+        const outputRel = this.conceptOutputPath(concept.path);
+        const existed = await this.store.exists(outputRel);
         const result = await this.writeConcept({
           ...concept,
           frontmatter: { ...concept.frontmatter, generated_by: "llm-wiki-sdk" },
+          guardedUpdate: existed,
         });
         changeSet.created.push(...result.created);
         changeSet.updated.push(...result.updated);
+        changeSet.failed.push(...result.failed);
         changeSet.warnings.push(...result.warnings);
       } catch (error) {
         changeSet.failed.push(changeFailure(concept.path, error));
@@ -390,7 +407,11 @@ export class KnowledgeBase {
     return changeSet;
   }
 
-  private async writeSource(options: IngestOptions, operation: "ingest" | "update"): Promise<ChangeSet> {
+  private async writeSource(
+    options: IngestOptions,
+    operation: "ingest" | "update",
+    writeOptions?: { deferReindex?: boolean },
+  ): Promise<ChangeSet> {
     const changeSet = emptyChangeSet(operation);
     const parserInput = toParserInput(options.path);
     const identity = sourceIdentity(parserInput);
@@ -436,18 +457,30 @@ export class KnowledgeBase {
       changeSet.created.push(outputRel);
     }
 
+    await this.finalizeSourceWrite(changeSet, outputRel, operation, existed, writeOptions);
+    return changeSet;
+  }
+
+  private async finalizeSourceWrite(
+    changeSet: ChangeSet,
+    outputRel: string,
+    operation: "ingest" | "update",
+    existed: boolean,
+    writeOptions?: { deferReindex?: boolean },
+  ): Promise<void> {
     try {
       await this.appendLog(operation, [`${existed ? "Updated" : "Created"}: ${outputRel}`]);
     } catch (error) {
       changeSet.warnings.push({ path: outputRel, code: "log_update_failed", message: errorMessage(error) });
+    }
+    if (writeOptions?.deferReindex === true) {
+      return;
     }
     try {
       await this.reindex();
     } catch (error) {
       changeSet.warnings.push({ path: outputRel, code: "reindex_failed", message: errorMessage(error) });
     }
-
-    return changeSet;
   }
 
   private async readConcepts(): Promise<ConceptDocument[]> {
@@ -592,47 +625,56 @@ export class KnowledgeBase {
     );
   }
 
-  private async guardedWriteConceptFailures(
+  private guardedWriteConceptFailures(
     guardedUpdate: boolean,
-    existed: boolean,
-    outputRel: string,
-    frontmatter: OkfFrontmatter,
-    body: string,
-  ): Promise<string[]> {
-    if (!guardedUpdate || !existed) {
+    existingDocument: ParsedMarkdownDocument | undefined,
+    nextFrontmatter: OkfFrontmatter,
+    nextBody: string,
+    options: WriteConceptOptions,
+  ): string[] {
+    if (!guardedUpdate || existingDocument === undefined) {
       return [];
     }
-    const existing = parseMarkdown(await this.store.read(outputRel));
-    return this.guardedUpdateFailures(existing.frontmatter, existing.body, frontmatter, body);
+    return collectGuardedUpdateFailures(
+      existingDocument.frontmatter,
+      existingDocument.body,
+      nextFrontmatter,
+      nextBody,
+      options,
+    );
   }
 
-  private guardedUpdateFailures(
-    existingFrontmatter: Record<string, unknown>,
-    existingBody: string,
-    nextFrontmatter: Record<string, unknown>,
-    nextBody: string,
-  ): string[] {
-    const failures: string[] = [];
-    const frontmatterFailures = guardedFrontmatterFailures(existingFrontmatter, nextFrontmatter);
-    if (frontmatterFailures.length > 0) {
-      failures.push(`frontmatter keys would change or be dropped: ${frontmatterFailures.join(", ")}`);
-    }
+  private emptyIngestManyChangeSet(changeSet: ChangeSet): ChangeSet {
+    changeSet.warnings.push({
+      path: "ingestMany",
+      code: "empty_paths",
+      message: "ingestMany received an empty paths array; no files were ingested.",
+    });
+    return changeSet;
+  }
 
-    const droppedHeadings = topLevelHeadings(existingBody).filter(
-      (heading) => !topLevelHeadings(nextBody).includes(heading),
-    );
-    if (droppedHeadings.length > 0) {
-      failures.push(`top-level headings would be dropped: ${droppedHeadings.join(", ")}`);
-    }
+  private mergeChangeSet(target: ChangeSet, source: ChangeSet): void {
+    target.created.push(...source.created);
+    target.updated.push(...source.updated);
+    target.deleted.push(...source.deleted);
+    target.skipped.push(...source.skipped);
+    target.failed.push(...source.failed);
+    target.warnings.push(...source.warnings);
+  }
 
-    const droppedCitations = bundleCitations(existingBody).filter(
-      (citation) => !bundleCitations(nextBody).includes(citation),
-    );
-    if (droppedCitations.length > 0) {
-      failures.push(`citations would be dropped: ${droppedCitations.join(", ")}`);
+  private async reindexBatch(changeSet: ChangeSet): Promise<void> {
+    if (changeSet.created.length === 0 && changeSet.updated.length === 0) {
+      return;
     }
-
-    return failures;
+    try {
+      await this.reindex();
+    } catch (error) {
+      changeSet.warnings.push({
+        path: "ingestMany",
+        code: "reindex_failed",
+        message: errorMessage(error),
+      });
+    }
   }
 
   private conceptOutputPath(path: string): string {
@@ -653,48 +695,6 @@ export class KnowledgeBase {
   }
 }
 
-function protectedFrontmatterKeys(frontmatter: Record<string, unknown>): string[] {
-  return Object.keys(frontmatter).filter((key) => key !== "timestamp");
-}
-
-function topLevelHeadings(body: string): string[] {
-  const headings: string[] = [];
-  for (const match of body.matchAll(/^#\s+(.+)$/gm)) {
-    const heading = match[1]?.trim();
-    if (heading !== undefined && heading !== "" && !headings.includes(heading)) {
-      headings.push(heading);
-    }
-  }
-  return headings;
-}
-
-function bundleCitations(body: string): string[] {
-  const citations = new Set<string>();
-  for (const link of extractMarkdownLinks(body)) {
-    if (isGuardedBundleCitation(link)) {
-      citations.add(link);
-    }
-  }
-  return [...citations];
-}
-
-function guardedFrontmatterFailures(
-  existingFrontmatter: Record<string, unknown>,
-  nextFrontmatter: Record<string, unknown>,
-): string[] {
-  const failures: string[] = [];
-  for (const key of protectedFrontmatterKeys(existingFrontmatter)) {
-    if (!(key in nextFrontmatter) || !frontmatterValuesEqual(existingFrontmatter[key], nextFrontmatter[key])) {
-      failures.push(key);
-    }
-  }
-  return failures;
-}
-
-function frontmatterValuesEqual(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right);
-}
-
 function sourceDocumentUsesUrl(frontmatter: Record<string, unknown>): boolean {
   const sourceUrl = typeof frontmatter.resource === "string" ? frontmatter.resource : frontmatter.source_path;
   return typeof sourceUrl === "string" && hasUrlScheme(sourceUrl);
@@ -708,12 +708,4 @@ function internalLinkTarget(relPath: string, target: string): string | undefined
   return targetWithoutFragment.startsWith("/")
     ? targetWithoutFragment.slice(1)
     : join(dirname(relPath), targetWithoutFragment);
-}
-
-function isGuardedBundleCitation(link: string): boolean {
-  return (
-    isBundleCitation(link) ||
-    /^\/(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(link) ||
-    /^(?:\.\.\/)+(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(link)
-  );
 }

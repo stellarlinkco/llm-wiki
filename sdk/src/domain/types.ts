@@ -42,6 +42,10 @@ export interface IngestOptions {
   path: string | ParserSourceInput;
 }
 
+export interface IngestManyOptions {
+  paths: (string | ParserSourceInput)[];
+}
+
 export interface CrawlOptions {
   sitemapUrl: string;
   limit?: number;
@@ -59,7 +63,9 @@ export interface WriteConceptOptions {
   type?: string;
   /**
    * When true and the target already exists, reject the update in ChangeSet.failed
-   * if it would drop existing frontmatter keys, top-level headings, or bundle citations.
+   * if it would drop protected frontmatter for fields omitted from the request,
+   * shrink tags to an empty list, drop top-level H1/H2 headings, or drop bundle citations.
+   * Explicit frontmatter, title, description, type, tags, and sourcePaths changes are allowed.
    */
   guardedUpdate?: boolean;
 }

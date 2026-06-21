@@ -7,6 +7,7 @@ export type {
   ConceptDocument,
   CrawlOptions,
   ExportOptions,
+  IngestManyOptions,
   IngestOptions,
   KnowledgeBaseOptions,
   ListConceptOptions,

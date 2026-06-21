@@ -423,7 +423,7 @@ Local `llm-wiki` context already requires:
 - VAL-009: `query()` citation filtering works with any backend. Evidence: fake provider returns extra citation; SDK filters to retrieved paths.
 - VAL-010: Deterministic methods work without LLM provider. Evidence: create → ingest → search → validate/status/list/export test.
 - VAL-011: LLM-dependent methods without provider throw `ConfigurationError`. Evidence: focused `query()` test.
-- VAL-012: If enrichment guards are implemented, citation/schema shrinkage is rejected or reported failed. Evidence: write/update guard test.
+- VAL-012: Guarded enrichment/update attempts that drop citations or shrink protected frontmatter/metadata are rejected or reported failed. Evidence: write/update guard test.
 - VAL-013: Full relevant gates pass after implementation. Evidence: `just typecheck`, `just test`, `just lint`.
 - VAL-014: Repository-level distillation remains explicit in the PRD. Evidence: requirements mention `samples/discovery`, `samples/enrichment`, `toolbox/mdcode`, and `toolbox/enrichment`.
 - VAL-015: Future discovery/rerank work preserves citation filtering. Evidence: fake multi-search/rerank test when implemented.
