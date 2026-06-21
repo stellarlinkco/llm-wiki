@@ -22,8 +22,7 @@ export function mergeWriteConceptFrontmatter(existingFrontmatter, options, now) 
     if (options.sourcePaths !== undefined) {
         frontmatter.source_paths = options.sourcePaths;
     }
-    else if (options.frontmatter?.source_paths === undefined &&
-        existingFrontmatter.source_paths !== undefined) {
+    else if (options.frontmatter?.source_paths === undefined && existingFrontmatter.source_paths !== undefined) {
         frontmatter.source_paths = existingFrontmatter.source_paths;
     }
     return frontmatter;
@@ -95,10 +94,15 @@ function protectedFrontmatterKeys(frontmatter) {
 function topLevelHeadings(body) {
     const headings = [];
     const prose = stripFencedCodeBlocks(body);
-    for (const match of prose.matchAll(/^#{1,2}\s+(.+)$/gm)) {
-        const heading = match[1]?.trim();
-        if (heading !== undefined && heading !== "" && !headings.includes(heading)) {
-            headings.push(heading);
+    for (const match of prose.matchAll(/^(#{1,2})\s+(.+)$/gm)) {
+        const marker = match[1] ?? "#";
+        const heading = match[2]?.trim();
+        if (heading === undefined || heading === "") {
+            continue;
+        }
+        const key = `${marker} ${heading}`;
+        if (!headings.includes(key)) {
+            headings.push(key);
         }
     }
     return headings;
@@ -118,7 +122,9 @@ function bundleCitations(body) {
         }
     }
     for (const link of extractHtmlBundleLinks(prose)) {
-        citations.add(link);
+        if (isGuardedBundleCitation(link)) {
+            citations.add(link);
+        }
     }
     for (const link of extractReferenceLinkTargets(prose)) {
         if (isGuardedBundleCitation(link)) {
@@ -220,23 +226,49 @@ function isExplicitTagClearing(existingTags, nextTags, options) {
     return Array.isArray(existingTags) && existingTags.length > 0 && Array.isArray(nextTags) && nextTags.length === 0;
 }
 function frontmatterValuesEqual(left, right) {
-    return JSON.stringify(left) === JSON.stringify(right);
+    return stableJsonStringify(left) === stableJsonStringify(right);
+}
+function stableJsonStringify(value) {
+    if (value === null || typeof value !== "object") {
+        return JSON.stringify(value);
+    }
+    if (Array.isArray(value)) {
+        return `[${value.map((entry) => stableJsonStringify(entry)).join(",")}]`;
+    }
+    const record = value;
+    const keys = Object.keys(record).sort();
+    return `{${keys.map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`).join(",")}}`;
 }
 function isGuardedBundleCitation(link) {
     return (isBundleCitation(link) ||
         /^\/(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(link) ||
         /^(?:\.\.\/)+(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(link));
 }
-function schemaLikeHeadingText(line) {
+function schemaLikeHeading(line) {
     const match = /^(#{1,2})\s+(.+?)\s*$/.exec(line);
     if (match === null) {
         return undefined;
     }
+    const marker = match[1] ?? "#";
     const text = match[2]?.trim() ?? "";
     if (text === "" || !/schema/i.test(text)) {
         return undefined;
     }
-    return text;
+    return { marker, heading: text };
+}
+function schemaBlockKey(block) {
+    return `${block.marker} ${block.heading.toLowerCase()}`;
+}
+function schemaBlockPreserved(existingLines, nextLines) {
+    if (nextLines.length < existingLines.length) {
+        return false;
+    }
+    for (let index = 0; index < existingLines.length; index++) {
+        if (nextLines[index] !== existingLines[index]) {
+            return false;
+        }
+    }
+    return true;
 }
 function skipBlankLines(lines, startIndex) {
     let index = startIndex;
@@ -266,7 +298,7 @@ function extractSchemaLikeFencedBlocks(body) {
     const lines = body.split("\n");
     const blocks = [];
     for (let i = 0; i < lines.length; i++) {
-        const heading = schemaLikeHeadingText(lines[i] ?? "");
+        const heading = schemaLikeHeading(lines[i] ?? "");
         if (heading === undefined) {
             continue;
         }
@@ -275,7 +307,7 @@ function extractSchemaLikeFencedBlocks(body) {
         if (contentLines === undefined) {
             continue;
         }
-        blocks.push({ heading, lines: contentLines });
+        blocks.push({ marker: heading.marker, heading: heading.heading, lines: contentLines });
         i = openFenceIndex + contentLines.length + 1;
     }
     return blocks;
@@ -286,14 +318,14 @@ function schemaLikeSectionFailures(existingBody, nextBody) {
     const nextBlocks = extractSchemaLikeFencedBlocks(nextBody);
     const nextByHeading = new Map();
     for (const block of nextBlocks) {
-        const key = block.heading.toLowerCase();
+        const key = schemaBlockKey(block);
         const list = nextByHeading.get(key) ?? [];
         list.push(block);
         nextByHeading.set(key, list);
     }
     const consumed = new Map();
     for (const existing of existingBlocks) {
-        const key = existing.heading.toLowerCase();
+        const key = schemaBlockKey(existing);
         const index = consumed.get(key) ?? 0;
         const candidates = nextByHeading.get(key) ?? [];
         const next = candidates[index];
@@ -302,8 +334,13 @@ function schemaLikeSectionFailures(existingBody, nextBody) {
             failures.push(`"${existing.heading}" fenced block would be removed`);
             continue;
         }
-        if (next.lines.length < existing.lines.length) {
-            failures.push(`"${existing.heading}" fenced block would shrink (${String(existing.lines.length)} -> ${String(next.lines.length)} lines)`);
+        if (!schemaBlockPreserved(existing.lines, next.lines)) {
+            if (next.lines.length < existing.lines.length) {
+                failures.push(`"${existing.heading}" fenced block would shrink (${String(existing.lines.length)} -> ${String(next.lines.length)} lines)`);
+            }
+            else {
+                failures.push(`"${existing.heading}" fenced block content would change`);
+            }
         }
     }
     return failures;

@@ -117,7 +117,13 @@ export class KnowledgeBase {
     if (options.paths.length === 0) {
       return this.emptyIngestManyChangeSet(changeSet);
     }
+    const seen = new Set<string>();
     for (const path of options.paths) {
+      const identity = sourceIdentity(toParserInput(path));
+      if (seen.has(identity)) {
+        continue;
+      }
+      seen.add(identity);
       this.mergeChangeSet(changeSet, await this.writeSource({ path }, "ingest", { deferReindex: true }));
     }
     await this.reindexBatch(changeSet);

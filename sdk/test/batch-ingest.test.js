@@ -61,3 +61,29 @@ test("ingestMany reindexes once after a multi-file batch", async () => {
   assert.deepEqual(changeSet.created.sort(), ["sources/one.md", "sources/two.md"]);
   assert.equal(indexCalls, 1);
 });
+
+test("ingestMany deduplicates repeated paths", async () => {
+  const root = await tempRoot();
+  const sourceRoot = await tempRoot();
+  const source = join(sourceRoot, "once.md");
+  await writeFile(source, "# Once\n\nSingle batch source.\n", "utf8");
+  let indexCalls = 0;
+  const search = {
+    async index() {
+      indexCalls += 1;
+    },
+    async search() {
+      return [];
+    },
+    async exists() {
+      return indexCalls > 0;
+    },
+  };
+
+  const kb = await KnowledgeBase.create({ root, search });
+  const changeSet = await kb.ingestMany({ paths: [source, source] });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.deepEqual(changeSet.created, ["sources/once.md"]);
+  assert.equal(indexCalls, 1);
+});

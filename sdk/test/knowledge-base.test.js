@@ -233,6 +233,32 @@ test("guarded writeConcept rejects dropping second-level headings", async () => 
   assert.equal(await readFile(join(root, "concepts", "second-level-heading.md"), "utf8"), before);
 });
 
+test("guarded writeConcept rejects dropping H2 when H1 shares the same heading text", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/duplicate-heading-text.md",
+    title: "Duplicate Heading Text",
+    body: "# Overview\n\nTop section.\n\n## Overview\n\nNested subsection to preserve.\n",
+  });
+
+  const before = await readFile(join(root, "concepts", "duplicate-heading-text.md"), "utf8");
+  const changeSet = await kb.writeConcept({
+    path: "concepts/duplicate-heading-text.md",
+    title: "Duplicate Heading Text",
+    body: "# Overview\n\nTop section only.\n",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
+  assert.match(changeSet.failed[0].error, /heading/i);
+  assert.match(changeSet.failed[0].error, /Overview/);
+  assert.equal(await readFile(join(root, "concepts", "duplicate-heading-text.md"), "utf8"), before);
+});
+
 test("guarded writeConcept rejects dropping bare bundle path citations", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
@@ -476,6 +502,27 @@ test("guarded writeConcept rejects dropping HTML bundle citations", async () => 
   assert.equal(await readFile(join(root, "concepts", "html-citation.md"), "utf8"), before);
 });
 
+test("guarded writeConcept allows removing external HTML hrefs", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/external-html.md",
+    title: "External HTML",
+    body: '# Summary\n\nSee <a href="https://example.com/docs">Docs</a>.\n',
+  });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/external-html.md",
+    title: "External HTML",
+    body: "# Summary\n\nExternal link removed during enrichment.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.deepEqual(changeSet.updated, ["concepts/external-html.md"]);
+});
+
 test("guarded writeConcept allows type updates via frontmatter", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
@@ -649,6 +696,136 @@ test("guarded writeConcept rejects shrinking schema-like fenced sections", async
   assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
   assert.match(changeSet.failed[0].error, /schema/i);
   assert.equal(await readFile(join(root, "concepts", "schema-guarded.md"), "utf8"), before);
+});
+
+test("guarded writeConcept rejects same-length schema fenced block content replacement", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/schema-content.md",
+    title: "Schema Content",
+    body: [
+      "# Summary",
+      "",
+      "## Schema",
+      "",
+      "```json",
+      "{",
+      '  "type": "object",',
+      '  "properties": {',
+      '    "name": { "type": "string" }',
+      "  }",
+      "}",
+      "```",
+    ].join("\n"),
+  });
+
+  const before = await readFile(join(root, "concepts", "schema-content.md"), "utf8");
+  const changeSet = await kb.writeConcept({
+    path: "concepts/schema-content.md",
+    title: "Schema Content",
+    body: [
+      "# Summary",
+      "",
+      "## Schema",
+      "",
+      "```json",
+      "{",
+      '  "type": "object",',
+      '  "properties": {',
+      '    "title": { "type": "string" }',
+      "  }",
+      "}",
+      "```",
+    ].join("\n"),
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.match(changeSet.failed[0].error, /schema/i);
+  assert.equal(await readFile(join(root, "concepts", "schema-content.md"), "utf8"), before);
+});
+
+test("guarded writeConcept allows appending lines to schema fenced blocks", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/schema-append.md",
+    title: "Schema Append",
+    body: ["# Summary", "", "## Schema", "", "```json", "line-a", "line-b", "```"].join("\n"),
+  });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/schema-append.md",
+    title: "Schema Append",
+    body: ["# Summary", "", "## Schema", "", "```json", "line-a", "line-b", "line-c appended", "```"].join("\n"),
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.deepEqual(changeSet.updated, ["concepts/schema-append.md"]);
+});
+
+test("guarded writeConcept rejects dropping H2 schema block when H1 shares the same heading text", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/schema-levels.md",
+    title: "Schema Levels",
+    body: [
+      "# Schema",
+      "",
+      "```json",
+      '{ "level": "h1" }',
+      "```",
+      "",
+      "## Schema",
+      "",
+      "```json",
+      '{ "level": "h2" }',
+      "```",
+    ].join("\n"),
+  });
+
+  const before = await readFile(join(root, "concepts", "schema-levels.md"), "utf8");
+  const changeSet = await kb.writeConcept({
+    path: "concepts/schema-levels.md",
+    title: "Schema Levels",
+    body: ["# Schema", "", "```json", '{ "level": "h1" }', "```"].join("\n"),
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.match(changeSet.failed[0].error, /schema/i);
+  assert.equal(await readFile(join(root, "concepts", "schema-levels.md"), "utf8"), before);
+});
+
+test("guarded writeConcept accepts body-only updates when frontmatter key order differs", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/frontmatter-order.md",
+    title: "Frontmatter Order",
+    tags: ["keep"],
+    frontmatter: { meta: { z: 1, a: 2 } },
+    body: "# Summary\n\nExisting body.",
+  });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/frontmatter-order.md",
+    title: "Frontmatter Order",
+    body: "# Summary\n\nExisting body with a guarded addition.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.deepEqual(changeSet.updated, ["concepts/frontmatter-order.md"]);
 });
 
 test("writeConcept update preserves existing custom frontmatter and open type without guardedUpdate", async () => {
