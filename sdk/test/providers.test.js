@@ -204,6 +204,38 @@ test("query strips non-retrieved bundle citations and external links from answer
   assert.match(answer.text, /\bfake\b/);
 });
 
+test("query strips unquoted HTML hrefs except retrieved bundle links from answer text", async () => {
+  const root = await tempRoot();
+  const sourceRoot = await tempRoot();
+  const source = join(sourceRoot, "architecture.md");
+  await writeFile(source, "# Architecture\n\nClean Architecture separates domain logic from infrastructure.\n", "utf8");
+  const provider = {
+    async generate() {
+      return {
+        text: [
+          "External <a href=https://fake.example/unquoted>external</a>.",
+          "Missing <a href=concepts/not-retrieved.md>missing</a>.",
+          "Retrieved <a href=sources/architecture.md>architecture</a>.",
+        ].join(" "),
+        citations: [],
+      };
+    },
+  };
+
+  const kb = await KnowledgeBase.create({ root, llm: provider });
+  await kb.ingest({ path: source });
+  const answer = await kb.query("What does Clean Architecture separate?");
+
+  assert.deepEqual(answer.citations, []);
+  assert.doesNotMatch(answer.text, /https:\/\/fake\.example/);
+  assert.doesNotMatch(answer.text, /concepts\/not-retrieved\.md/);
+  assert.doesNotMatch(answer.text, /<a\s+href=>/i);
+  assert.doesNotMatch(answer.text, /<a\s+href>\s*<\/a>/i);
+  assert.match(answer.text, /\bexternal\b/);
+  assert.match(answer.text, /\bmissing\b/);
+  assert.match(answer.text, /<a href=sources\/architecture\.md>architecture<\/a>/);
+});
+
 test("query fails clearly without an LLM provider", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });

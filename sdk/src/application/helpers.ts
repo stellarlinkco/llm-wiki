@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { basename, resolve } from "node:path";
-import type { ChangeSet, ParserSourceInput, WriteConceptOptions } from "../domain/types.js";
+import { basename, dirname, join, resolve } from "node:path";
+import type { ChangeSet, ParserSourceInput, SynthesizeOptions, WriteConceptOptions } from "../domain/types.js";
 import { ConfigurationError, ParserError, errorMessage } from "../domain/errors.js";
 
 export function emptyChangeSet(operation: ChangeSet["operation"]): ChangeSet {
@@ -164,6 +164,58 @@ export function failurePath(input: string | ParserSourceInput, identity: string,
 
 export function hasUrlScheme(value: string): boolean {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+}
+
+export function sourceCandidateMatches(
+  frontmatter: Record<string, unknown>,
+  sourceIdentity: string,
+  resource: string,
+): boolean {
+  return (
+    sourceCandidateMatchesIdentity(frontmatter, sourceIdentity) ||
+    sourceCandidateMatchesUrlResource(frontmatter, resource)
+  );
+}
+
+export function sourceDocumentUsesUrl(frontmatter: Record<string, unknown>): boolean {
+  const sourceUrl = typeof frontmatter.resource === "string" ? frontmatter.resource : frontmatter.source_path;
+  return typeof sourceUrl === "string" && hasUrlScheme(sourceUrl);
+}
+
+export function internalLinkTarget(relPath: string, target: string): string | undefined {
+  const targetWithoutFragment = target.split("#", 1)[0] ?? "";
+  if (targetWithoutFragment === "") {
+    return undefined;
+  }
+  return targetWithoutFragment.startsWith("/")
+    ? targetWithoutFragment.slice(1)
+    : join(dirname(relPath), targetWithoutFragment);
+}
+
+export function synthesisSystemContent(options: SynthesizeOptions, defaultPrompt: string): string {
+  return options.outputSchema === undefined
+    ? (options.systemPrompt ?? defaultPrompt)
+    : `${options.outputSchema}\n\n${options.systemPrompt ?? defaultPrompt}`;
+}
+
+export function synthesisWriteFrontmatter(existed: boolean, concept: WriteConceptOptions): Record<string, unknown> {
+  return existed ? { generated_by: "llm-wiki-sdk" } : { ...concept.frontmatter, generated_by: "llm-wiki-sdk" };
+}
+
+function sourceCandidateMatchesIdentity(frontmatter: Record<string, unknown>, sourceIdentity: string): boolean {
+  return (
+    frontmatter.source_id === sha256(sourceIdentity) ||
+    frontmatter.source_path === sourceIdentity ||
+    frontmatter.resource === sourceIdentity
+  );
+}
+
+function sourceCandidateMatchesUrlResource(frontmatter: Record<string, unknown>, resource: string): boolean {
+  return (
+    hasUrlScheme(resource) &&
+    frontmatter.source_id === undefined &&
+    (frontmatter.source_path === resource || frontmatter.resource === resource)
+  );
 }
 
 export function sourceBasename(sourcePath: string): string {

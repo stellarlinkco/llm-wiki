@@ -80,11 +80,17 @@ export class BigQuerySearchAdapter implements SearchAdapter {
         "SELECT bundle_id, path, title, type, tags, content",
         `FROM \`${this.tableFqn}\``,
         "WHERE bundle_id = @bundle_id",
-        "AND @query_text != ''",
+        "AND EXISTS (",
+        "SELECT 1 FROM UNNEST(@query_tokens) AS token",
+        "WHERE STRPOS(LOWER(COALESCE(title, '')), token) > 0",
+        "OR STRPOS(LOWER(COALESCE(content, '')), token) > 0",
+        "OR EXISTS (SELECT 1 FROM UNNEST(IFNULL(tags, [])) AS tag WHERE STRPOS(LOWER(tag), token) > 0)",
+        ")",
       ].join(" "),
       params: {
         bundle_id: this.bundleId,
         query_text: queryTokens.join(" "),
+        query_tokens: queryTokens,
       },
     });
     const results = await this.readableSearchResults(rows, queryTokens);
@@ -127,6 +133,6 @@ export class BigQuerySearchAdapter implements SearchAdapter {
       query: `SELECT path FROM \`${this.tableFqn}\` WHERE bundle_id = @bundle_id LIMIT 1`,
       params: { bundle_id: this.bundleId },
     });
-    return rows.some((row) => row.bundle_id === this.bundleId);
+    return rows.length > 0;
   }
 }

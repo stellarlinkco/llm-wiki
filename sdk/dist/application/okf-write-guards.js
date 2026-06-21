@@ -50,6 +50,47 @@ export function collectGuardedUpdateFailures(existingFrontmatter, existingBody, 
     }
     return failures;
 }
+export function collectSynthesizeGuardedUpdateFailures(existingFrontmatter, concept) {
+    if (existingFrontmatter === undefined) {
+        return [];
+    }
+    const normalizedExisting = toOkfFrontmatter(existingFrontmatter);
+    const failures = [
+        ...synthesizeFrontmatterFailures(normalizedExisting, concept.frontmatter),
+        ...synthesizeTopLevelMetadataFailures(normalizedExisting, concept),
+    ];
+    return [...new Set(failures)];
+}
+function synthesizeFrontmatterFailures(existingFrontmatter, proposedFrontmatter) {
+    if (proposedFrontmatter === undefined) {
+        return [];
+    }
+    const proposed = toOkfFrontmatter(proposedFrontmatter);
+    const failures = [];
+    for (const [key, value] of Object.entries(existingFrontmatter)) {
+        if (key === "timestamp") {
+            continue;
+        }
+        if (!(key in proposed) || !frontmatterValuesEqual(value, proposed[key])) {
+            failures.push(key);
+        }
+    }
+    return failures;
+}
+function synthesizeTopLevelMetadataFailures(existingFrontmatter, concept) {
+    return [
+        synthesizeMetadataFailure("type", existingFrontmatter.type, concept.type),
+        synthesizeMetadataFailure("description", existingFrontmatter.description, concept.description),
+        synthesizeMetadataFailure("tags", existingFrontmatter.tags, concept.tags),
+        synthesizeMetadataFailure("source_paths", existingFrontmatter.source_paths, concept.sourcePaths),
+    ].filter((failure) => failure !== undefined);
+}
+function synthesizeMetadataFailure(key, existingValue, proposedValue) {
+    if (proposedValue === undefined || existingValue === undefined) {
+        return undefined;
+    }
+    return frontmatterValuesEqual(existingValue, proposedValue) ? undefined : key;
+}
 function resolveWriteConceptType(options, existingFrontmatter) {
     if (options.type !== undefined) {
         return options.type;
@@ -108,7 +149,25 @@ function topLevelHeadings(body) {
     return headings;
 }
 function stripFencedCodeBlocks(body) {
-    return body.replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, "");
+    const lines = body.split("\n");
+    const prose = [];
+    let index = 0;
+    while (index < lines.length) {
+        const fence = parseFence(lines[index] ?? "");
+        if (fence === undefined) {
+            prose.push(lines[index] ?? "");
+            index++;
+            continue;
+        }
+        index++;
+        while (index < lines.length && !closesFence(lines[index] ?? "", fence)) {
+            index++;
+        }
+        if (index < lines.length) {
+            index++;
+        }
+    }
+    return prose.join("\n");
 }
 function stripInlineCode(body) {
     return body.replace(/`[^`\n]+`/g, "");
@@ -264,16 +323,29 @@ function skipBlankLines(lines, startIndex) {
     }
     return index;
 }
+function parseFence(line) {
+    const match = /^(?: {0,3})(`{3,}|~{3,})/.exec(line);
+    if (match === null) {
+        return undefined;
+    }
+    const marker = match[1] ?? "```";
+    return { character: marker[0], length: marker.length };
+}
+function closesFence(line, fence) {
+    const escaped = fence.character === "`" ? "`" : "~";
+    const pattern = new RegExp(`^(?: {0,3})${escaped}{${String(fence.length)},}\\s*$`);
+    return pattern.test(line);
+}
 function readFencedBlockContent(lines, openFenceIndex) {
-    const openFence = lines[openFenceIndex];
-    if (!openFence?.startsWith("```")) {
+    const fence = parseFence(lines[openFenceIndex] ?? "");
+    if (fence === undefined) {
         return undefined;
     }
     const contentLines = [];
     let index = openFenceIndex + 1;
     while (index < lines.length) {
         const line = lines[index] ?? "";
-        if (/^```\s*$/.test(line)) {
+        if (closesFence(line, fence)) {
             return contentLines;
         }
         contentLines.push(line);

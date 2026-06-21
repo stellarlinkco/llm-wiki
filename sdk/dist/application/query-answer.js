@@ -11,8 +11,9 @@ export function filterQueryAnswerText(text, retrievedPaths) {
     return filtered;
 }
 function stripDisallowedQueryHtmlLinks(text, retrievedPaths) {
-    return text.replace(/<a\b[^>]*\bhref\s*=\s*(["'])([^"']*)\1[^>]*>([\s\S]*?)<\/a>/gi, (match, quote, href, label) => {
+    return text.replace(/<a\b[^>]*\bhref\s*=\s*(?:(["'])([^"']*)\1|([^\s"'=<>`]+))[^>]*>([\s\S]*?)<\/a>/gi, (match, quote, quotedHref, unquotedHref, label) => {
         void quote;
+        const href = quotedHref ?? unquotedHref ?? "";
         return shouldStripQueryMarkdownLink(href.trim(), retrievedPaths) ? label : match;
     });
 }

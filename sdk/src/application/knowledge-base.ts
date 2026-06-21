@@ -1,4 +1,4 @@
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, extname, resolve } from "node:path";
 
 import type {
   BundleStore,
@@ -41,7 +41,11 @@ import {
   titleFromPath,
   validateReservedFile,
 } from "../infrastructure/markdown.js";
-import { collectGuardedUpdateFailures, mergeWriteConceptFrontmatter } from "./okf-write-guards.js";
+import {
+  collectGuardedUpdateFailures,
+  collectSynthesizeGuardedUpdateFailures,
+  mergeWriteConceptFrontmatter,
+} from "./okf-write-guards.js";
 import { filterQueryAnswerText } from "./query-answer.js";
 import { buildProgressiveIndexFiles } from "./index-catalog.js";
 import { tokenize } from "./search.js";
@@ -53,15 +57,18 @@ import {
   extractSitemapLocations,
   failurePath,
   frontmatterMetadata,
-  hasUrlScheme,
+  internalLinkTarget,
   publicResource,
   sha256,
   slugify,
   sourceBasename,
+  sourceCandidateMatches,
+  sourceDocumentUsesUrl,
   sourceIdentity,
+  synthesisSystemContent,
+  synthesisWriteFrontmatter,
   toParserInput,
 } from "./helpers.js";
-
 const DEFAULT_SYNTHESIS_PROMPT =
   'Generate OKF concept documents as JSON. Return {"concepts":[{"path":"concepts/name.md","title":"...","description":"...","tags":["..."],"body":"...","sourcePaths":["sources/name.md"]}]} only.';
 
@@ -190,13 +197,16 @@ export class KnowledgeBase {
       options,
       now,
     );
-    const guardFailures = this.guardedWriteConceptFailures(
-      options.guardedUpdate === true,
-      existingDocument,
-      frontmatter,
-      options.body,
-      options,
-    );
+    const guardFailures =
+      options.guardedUpdate === true && existingDocument !== undefined
+        ? collectGuardedUpdateFailures(
+            existingDocument.frontmatter,
+            existingDocument.body,
+            frontmatter,
+            options.body,
+            options,
+          )
+        : [];
     if (guardFailures.length > 0) {
       changeSet.failed.push({
         path: outputRel,
@@ -255,10 +265,7 @@ export class KnowledgeBase {
         return `# ${result.path}\n${content}`;
       }),
     );
-    const systemContent =
-      options.outputSchema !== undefined
-        ? `${options.outputSchema}\n\n${options.systemPrompt ?? DEFAULT_SYNTHESIS_PROMPT}`
-        : (options.systemPrompt ?? DEFAULT_SYNTHESIS_PROMPT);
+    const systemContent = synthesisSystemContent(options, DEFAULT_SYNTHESIS_PROMPT);
     const response = await this.llm.generate({
       structuredOutput: { type: "json" },
       messages: [
@@ -274,9 +281,22 @@ export class KnowledgeBase {
       try {
         const outputRel = this.conceptOutputPath(concept.path);
         const existed = await this.store.exists(outputRel);
+        const existingDocument = existed ? parseMarkdown(await this.store.read(outputRel)) : undefined;
+        const synthesizeFrontmatterFailures = collectSynthesizeGuardedUpdateFailures(
+          existingDocument?.frontmatter,
+          concept,
+        );
+        if (synthesizeFrontmatterFailures.length > 0) {
+          changeSet.failed.push({
+            path: outputRel,
+            code: "guarded_update_rejected",
+            error: `Guarded update rejected: frontmatter keys would change or be dropped: ${synthesizeFrontmatterFailures.join(", ")}.`,
+          });
+          continue;
+        }
         const result = await this.writeConcept({
           ...concept,
-          frontmatter: { ...concept.frontmatter, generated_by: "llm-wiki-sdk" },
+          frontmatter: synthesisWriteFrontmatter(existed, concept),
           guardedUpdate: existed,
         });
         changeSet.created.push(...result.created);
@@ -518,7 +538,7 @@ export class KnowledgeBase {
     }
 
     const parsed = parseMarkdown(await this.store.read(candidate));
-    if (this.sourceCandidateMatches(parsed.frontmatter, sourceIdentity, resource)) {
+    if (sourceCandidateMatches(parsed.frontmatter, sourceIdentity, resource)) {
       return candidate;
     }
 
@@ -603,52 +623,6 @@ export class KnowledgeBase {
     }
   }
 
-  private sourceCandidateMatches(
-    frontmatter: Record<string, unknown>,
-    sourceIdentity: string,
-    resource: string,
-  ): boolean {
-    return (
-      this.sourceCandidateMatchesIdentity(frontmatter, sourceIdentity) ||
-      this.sourceCandidateMatchesUrlResource(frontmatter, resource)
-    );
-  }
-
-  private sourceCandidateMatchesIdentity(frontmatter: Record<string, unknown>, sourceIdentity: string): boolean {
-    return (
-      frontmatter.source_id === sha256(sourceIdentity) ||
-      frontmatter.source_path === sourceIdentity ||
-      frontmatter.resource === sourceIdentity
-    );
-  }
-
-  private sourceCandidateMatchesUrlResource(frontmatter: Record<string, unknown>, resource: string): boolean {
-    return (
-      hasUrlScheme(resource) &&
-      frontmatter.source_id === undefined &&
-      (frontmatter.source_path === resource || frontmatter.resource === resource)
-    );
-  }
-
-  private guardedWriteConceptFailures(
-    guardedUpdate: boolean,
-    existingDocument: ParsedMarkdownDocument | undefined,
-    nextFrontmatter: OkfFrontmatter,
-    nextBody: string,
-    options: WriteConceptOptions,
-  ): string[] {
-    if (!guardedUpdate || existingDocument === undefined) {
-      return [];
-    }
-    return collectGuardedUpdateFailures(
-      existingDocument.frontmatter,
-      existingDocument.body,
-      nextFrontmatter,
-      nextBody,
-      options,
-    );
-  }
-
   private emptyIngestManyChangeSet(changeSet: ChangeSet): ChangeSet {
     changeSet.warnings.push({
       path: "ingestMany",
@@ -698,19 +672,4 @@ export class KnowledgeBase {
     );
     await this.store.write(logRel, `${current.trimEnd()}\n${entry}\n`);
   }
-}
-
-function sourceDocumentUsesUrl(frontmatter: Record<string, unknown>): boolean {
-  const sourceUrl = typeof frontmatter.resource === "string" ? frontmatter.resource : frontmatter.source_path;
-  return typeof sourceUrl === "string" && hasUrlScheme(sourceUrl);
-}
-
-function internalLinkTarget(relPath: string, target: string): string | undefined {
-  const targetWithoutFragment = target.split("#", 1)[0] ?? "";
-  if (targetWithoutFragment === "") {
-    return undefined;
-  }
-  return targetWithoutFragment.startsWith("/")
-    ? targetWithoutFragment.slice(1)
-    : join(dirname(relPath), targetWithoutFragment);
 }

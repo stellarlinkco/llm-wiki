@@ -456,6 +456,39 @@ test("guarded writeConcept ignores bare bundle paths inside fenced code blocks",
   assert.deepEqual(changeSet.updated, ["concepts/fenced-citation.md"]);
 });
 
+test("guarded writeConcept ignores headings and citations inside indented backtick and tilde fences", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/fenced-variants.md",
+    title: "Fenced Variants",
+    body: [
+      "# Real",
+      "",
+      "   ```md",
+      "# Example Only",
+      "sources/fenced-backtick.md",
+      "   ```",
+      "",
+      "  ~~~md",
+      "## Tilde Example Only",
+      "[Tilde](sources/fenced-tilde.md)",
+      "  ~~~",
+    ].join("\n"),
+  });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/fenced-variants.md",
+    title: "Fenced Variants",
+    body: "# Real\n\nFenced examples removed.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  assert.deepEqual(changeSet.updated, ["concepts/fenced-variants.md"]);
+});
+
 test("guarded writeConcept ignores bare bundle paths inside inline code", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
@@ -696,6 +729,64 @@ test("guarded writeConcept rejects shrinking schema-like fenced sections", async
   assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
   assert.match(changeSet.failed[0].error, /schema/i);
   assert.equal(await readFile(join(root, "concepts", "schema-guarded.md"), "utf8"), before);
+});
+
+test("guarded writeConcept rejects schema shrinkage in indented backtick and tilde fences", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/schema-fence-variants.md",
+    title: "Schema Fence Variants",
+    body: [
+      "# Summary",
+      "",
+      "## Backtick Schema",
+      "",
+      "   ```json",
+      "line-a",
+      "line-b",
+      "line-c",
+      "   ```",
+      "",
+      "## Tilde Schema",
+      "",
+      "  ~~~json",
+      "field-a",
+      "field-b",
+      "  ~~~",
+    ].join("\n"),
+  });
+
+  const before = await readFile(join(root, "concepts", "schema-fence-variants.md"), "utf8");
+  const changeSet = await kb.writeConcept({
+    path: "concepts/schema-fence-variants.md",
+    title: "Schema Fence Variants",
+    body: [
+      "# Summary",
+      "",
+      "## Backtick Schema",
+      "",
+      "   ```json",
+      "line-a",
+      "   ```",
+      "",
+      "## Tilde Schema",
+      "",
+      "  ~~~json",
+      "field-a",
+      "  ~~~",
+    ].join("\n"),
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.equal(changeSet.failed[0].path, "concepts/schema-fence-variants.md");
+  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
+  assert.match(changeSet.failed[0].error, /Backtick Schema/);
+  assert.match(changeSet.failed[0].error, /Tilde Schema/);
+  assert.equal(await readFile(join(root, "concepts", "schema-fence-variants.md"), "utf8"), before);
 });
 
 test("guarded writeConcept rejects same-length schema fenced block content replacement", async () => {
@@ -1167,7 +1258,182 @@ test("synthesize uses guardedUpdate when updating an existing concept path", asy
   assert.equal(await readFile(join(root, "concepts", "interfaces.md"), "utf8"), before);
 });
 
-test("synthesize updates an existing concept when guarded metadata changes preserve headings and citations", async () => {
+test("synthesize rejects protected frontmatter loss on existing concept paths", async () => {
+  const root = await tempRoot();
+  const sourceRoot = await tempRoot();
+  const source = join(sourceRoot, "official.md");
+  await writeFile(source, "# Official\n\nStellarLink interface ownership is documented in sources.\n", "utf8");
+  const llm = {
+    async generate() {
+      return {
+        text: JSON.stringify({
+          concepts: [
+            {
+              path: "concepts/protected-metadata.md",
+              title: "Protected Metadata",
+              frontmatter: { owner: "other-team" },
+              body: "# Summary\n\nKeep [Source](sources/official.md).\n\nReplacement text.",
+            },
+          ],
+        }),
+      };
+    },
+  };
+
+  const kb = await KnowledgeBase.create({ root, llm });
+  await kb.ingest({ path: source });
+  await kb.writeConcept({
+    path: "concepts/protected-metadata.md",
+    title: "Protected Metadata",
+    frontmatter: { owner: "platform", retention_policy: "gold" },
+    body: "# Summary\n\nKeep [Source](sources/official.md).\n",
+  });
+
+  const before = await readFile(join(root, "concepts", "protected-metadata.md"), "utf8");
+  const changeSet = await kb.synthesize({
+    query: "StellarLink interface ownership",
+    instructions: "Update protected metadata concept.",
+    limit: 5,
+  });
+
+  assert.deepEqual(changeSet.created, []);
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.equal(changeSet.failed[0].path, "concepts/protected-metadata.md");
+  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
+  assert.match(changeSet.failed[0].error, /frontmatter/i);
+  assert.match(changeSet.failed[0].error, /owner/);
+  assert.match(changeSet.failed[0].error, /retention_policy/);
+  assert.equal(await readFile(join(root, "concepts", "protected-metadata.md"), "utf8"), before);
+});
+test("synthesize rejects provider top-level metadata replacement on existing concept paths", async () => {
+  const root = await tempRoot();
+  const sourceRoot = await tempRoot();
+  const source = join(sourceRoot, "official.md");
+  await writeFile(source, "# Official\n\nStellarLink interface metadata is documented in sources.\n", "utf8");
+  const llm = {
+    async generate() {
+      return {
+        text: JSON.stringify({
+          concepts: [
+            {
+              path: "concepts/top-level-metadata.md",
+              type: "ProviderGeneratedType",
+              title: "Top Level Metadata",
+              description: "Provider replacement description.",
+              tags: ["provider-tag"],
+              sourcePaths: ["sources/provider.md"],
+              body: "# Summary\n\nKeep [Source](sources/official.md).\n\nReplacement text.",
+            },
+          ],
+        }),
+      };
+    },
+  };
+
+  const kb = await KnowledgeBase.create({ root, llm });
+  await kb.ingest({ path: source });
+  await kb.writeConcept({
+    path: "concepts/top-level-metadata.md",
+    type: "Concept",
+    title: "Top Level Metadata",
+    description: "Original protected description.",
+    tags: ["protected-tag"],
+    sourcePaths: ["sources/official.md"],
+    body: "# Summary\n\nKeep [Source](sources/official.md).\n",
+  });
+
+  const before = await readFile(join(root, "concepts", "top-level-metadata.md"), "utf8");
+  const changeSet = await kb.synthesize({
+    query: "StellarLink interface metadata",
+    instructions: "Update top-level metadata concept.",
+    limit: 5,
+  });
+
+  assert.deepEqual(changeSet.created, []);
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.equal(changeSet.failed[0].path, "concepts/top-level-metadata.md");
+  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
+  assert.match(changeSet.failed[0].error, /type/i);
+  assert.match(changeSet.failed[0].error, /description/i);
+  assert.match(changeSet.failed[0].error, /tags/i);
+  assert.match(changeSet.failed[0].error, /source_paths/i);
+  assert.equal(await readFile(join(root, "concepts", "top-level-metadata.md"), "utf8"), before);
+});
+
+test("synthesize rejects schema-like fenced-section shrinkage on existing concept paths", async () => {
+  const root = await tempRoot();
+  const sourceRoot = await tempRoot();
+  const source = join(sourceRoot, "official.md");
+  await writeFile(source, "# Official\n\nStellarLink schema metadata is documented in sources.\n", "utf8");
+  const llm = {
+    async generate() {
+      return {
+        text: JSON.stringify({
+          concepts: [
+            {
+              path: "concepts/schema-synthesis.md",
+              title: "Schema Synthesis",
+              body: [
+                "# Summary",
+                "",
+                "Updated synthesis keeps the heading but shrinks schema detail.",
+                "",
+                "## Interface Schema",
+                "",
+                "```json",
+                "{",
+                '  "name": "interface"',
+                "}",
+                "```",
+              ].join("\n"),
+            },
+          ],
+        }),
+      };
+    },
+  };
+
+  const kb = await KnowledgeBase.create({ root, llm });
+  await kb.ingest({ path: source });
+  await kb.writeConcept({
+    path: "concepts/schema-synthesis.md",
+    title: "Schema Synthesis",
+    body: [
+      "# Summary",
+      "",
+      "Keep deterministic schema detail.",
+      "",
+      "## Interface Schema",
+      "",
+      "```json",
+      "{",
+      '  "name": "interface",',
+      '  "fields": ["owner", "status"]',
+      "}",
+      "```",
+    ].join("\n"),
+  });
+
+  const before = await readFile(join(root, "concepts", "schema-synthesis.md"), "utf8");
+  const changeSet = await kb.synthesize({
+    query: "StellarLink schema metadata",
+    instructions: "Update schema synthesis concept.",
+    limit: 5,
+  });
+
+  assert.deepEqual(changeSet.created, []);
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.equal(changeSet.failed[0].path, "concepts/schema-synthesis.md");
+  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
+  assert.match(changeSet.failed[0].error, /schema/i);
+  assert.match(changeSet.failed[0].error, /Interface Schema/);
+  assert.equal(await readFile(join(root, "concepts", "schema-synthesis.md"), "utf8"), before);
+});
+
+test("synthesize updates an existing concept body and title when guarded metadata is preserved", async () => {
   const root = await tempRoot();
   const sourceRoot = await tempRoot();
   const source = join(sourceRoot, "official.md");
@@ -1180,7 +1446,6 @@ test("synthesize updates an existing concept when guarded metadata changes prese
             {
               path: "concepts/interfaces.md",
               title: "Updated Interfaces",
-              description: "Refined from source synthesis.",
               body: "# Protected\n\nKeep [Source](sources/official.md).\n\nAdded detail from synthesis.",
             },
           ],
@@ -1210,6 +1475,7 @@ test("synthesize updates an existing concept when guarded metadata changes prese
   assert.match(updated, /^title: Updated Interfaces$/m);
   assert.match(updated, /Added detail from synthesis\./);
   assert.match(updated, /Keep \[Source\]\(sources\/official\.md\)/);
+  assert.match(updated, /^description: Original description\.$/m);
 });
 
 test("synthesize grounds prompts in source documents rather than existing concepts", async () => {

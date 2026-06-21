@@ -73,6 +73,60 @@ export function collectGuardedUpdateFailures(
   return failures;
 }
 
+export function collectSynthesizeGuardedUpdateFailures(
+  existingFrontmatter: Record<string, unknown> | undefined,
+  concept: WriteConceptOptions,
+): string[] {
+  if (existingFrontmatter === undefined) {
+    return [];
+  }
+  const normalizedExisting = toOkfFrontmatter(existingFrontmatter);
+  const failures = [
+    ...synthesizeFrontmatterFailures(normalizedExisting, concept.frontmatter),
+    ...synthesizeTopLevelMetadataFailures(normalizedExisting, concept),
+  ];
+  return [...new Set(failures)];
+}
+
+function synthesizeFrontmatterFailures(
+  existingFrontmatter: OkfFrontmatter,
+  proposedFrontmatter: Record<string, unknown> | undefined,
+): string[] {
+  if (proposedFrontmatter === undefined) {
+    return [];
+  }
+  const proposed = toOkfFrontmatter(proposedFrontmatter);
+  const failures: string[] = [];
+  for (const [key, value] of Object.entries(existingFrontmatter)) {
+    if (key === "timestamp") {
+      continue;
+    }
+    if (!(key in proposed) || !frontmatterValuesEqual(value, proposed[key])) {
+      failures.push(key);
+    }
+  }
+  return failures;
+}
+
+function synthesizeTopLevelMetadataFailures(
+  existingFrontmatter: OkfFrontmatter,
+  concept: WriteConceptOptions,
+): string[] {
+  return [
+    synthesizeMetadataFailure("type", existingFrontmatter.type, concept.type),
+    synthesizeMetadataFailure("description", existingFrontmatter.description, concept.description),
+    synthesizeMetadataFailure("tags", existingFrontmatter.tags, concept.tags),
+    synthesizeMetadataFailure("source_paths", existingFrontmatter.source_paths, concept.sourcePaths),
+  ].filter((failure): failure is string => failure !== undefined);
+}
+
+function synthesizeMetadataFailure(key: string, existingValue: unknown, proposedValue: unknown): string | undefined {
+  if (proposedValue === undefined || existingValue === undefined) {
+    return undefined;
+  }
+  return frontmatterValuesEqual(existingValue, proposedValue) ? undefined : key;
+}
+
 function resolveWriteConceptType(options: WriteConceptOptions, existingFrontmatter: OkfFrontmatter): string {
   if (options.type !== undefined) {
     return options.type;
@@ -136,7 +190,25 @@ function topLevelHeadings(body: string): string[] {
 }
 
 function stripFencedCodeBlocks(body: string): string {
-  return body.replace(/^```[^\n]*\n[\s\S]*?^```\s*$/gm, "");
+  const lines = body.split("\n");
+  const prose: string[] = [];
+  let index = 0;
+  while (index < lines.length) {
+    const fence = parseFence(lines[index] ?? "");
+    if (fence === undefined) {
+      prose.push(lines[index] ?? "");
+      index++;
+      continue;
+    }
+    index++;
+    while (index < lines.length && !closesFence(lines[index] ?? "", fence)) {
+      index++;
+    }
+    if (index < lines.length) {
+      index++;
+    }
+  }
+  return prose.join("\n");
 }
 
 function stripInlineCode(body: string): string {
@@ -277,6 +349,11 @@ function isGuardedBundleCitation(link: string): boolean {
   return normalizeBundleCitationPath(link) !== undefined;
 }
 
+interface MarkdownFence {
+  character: "`" | "~";
+  length: number;
+}
+
 interface SchemaFencedBlock {
   marker: string;
   heading: string;
@@ -320,16 +397,31 @@ function skipBlankLines(lines: string[], startIndex: number): number {
   return index;
 }
 
+function parseFence(line: string): MarkdownFence | undefined {
+  const match = /^(?: {0,3})(`{3,}|~{3,})/.exec(line);
+  if (match === null) {
+    return undefined;
+  }
+  const marker = match[1] ?? "```";
+  return { character: marker[0] as "`" | "~", length: marker.length };
+}
+
+function closesFence(line: string, fence: MarkdownFence): boolean {
+  const escaped = fence.character === "`" ? "`" : "~";
+  const pattern = new RegExp(`^(?: {0,3})${escaped}{${String(fence.length)},}\\s*$`);
+  return pattern.test(line);
+}
+
 function readFencedBlockContent(lines: string[], openFenceIndex: number): string[] | undefined {
-  const openFence = lines[openFenceIndex];
-  if (!openFence?.startsWith("```")) {
+  const fence = parseFence(lines[openFenceIndex] ?? "");
+  if (fence === undefined) {
     return undefined;
   }
   const contentLines: string[] = [];
   let index = openFenceIndex + 1;
   while (index < lines.length) {
     const line = lines[index] ?? "";
-    if (/^```\s*$/.test(line)) {
+    if (closesFence(line, fence)) {
       return contentLines;
     }
     contentLines.push(line);

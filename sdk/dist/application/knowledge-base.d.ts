@@ -30,10 +30,6 @@ export declare class KnowledgeBase {
     private validateReservedMarkdownFile;
     private validateMarkdownLinks;
     private validateMarkdownLink;
-    private sourceCandidateMatches;
-    private sourceCandidateMatchesIdentity;
-    private sourceCandidateMatchesUrlResource;
-    private guardedWriteConceptFailures;
     private emptyIngestManyChangeSet;
     private mergeChangeSet;
     private reindexBatch;

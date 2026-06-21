@@ -1,15 +1,15 @@
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, extname, resolve } from "node:path";
 import { ConfigurationError, errorMessage } from "../domain/errors.js";
 import { FilesystemBundleStore } from "../infrastructure/filesystem-store.js";
 import { LocalSearchAdapter } from "../infrastructure/local-search.js";
 import { DefaultSourceParser } from "../infrastructure/source-parser.js";
 import { fetchUrlInput } from "../infrastructure/parsers/url.js";
 import { extractMarkdownLinks, isExternalLink, isBundleCitation, parseMarkdown, serializeMarkdown, toOkfFrontmatter, titleFromPath, validateReservedFile, } from "../infrastructure/markdown.js";
-import { collectGuardedUpdateFailures, mergeWriteConceptFrontmatter } from "./okf-write-guards.js";
+import { collectGuardedUpdateFailures, collectSynthesizeGuardedUpdateFailures, mergeWriteConceptFrontmatter, } from "./okf-write-guards.js";
 import { filterQueryAnswerText } from "./query-answer.js";
 import { buildProgressiveIndexFiles } from "./index-catalog.js";
 import { tokenize } from "./search.js";
-import { boundedSlug, changeFailure, conceptsFromSynthesis, emptyChangeSet, extractSitemapLocations, failurePath, frontmatterMetadata, hasUrlScheme, publicResource, sha256, slugify, sourceBasename, sourceIdentity, toParserInput, } from "./helpers.js";
+import { boundedSlug, changeFailure, conceptsFromSynthesis, emptyChangeSet, extractSitemapLocations, failurePath, frontmatterMetadata, internalLinkTarget, publicResource, sha256, slugify, sourceBasename, sourceCandidateMatches, sourceDocumentUsesUrl, sourceIdentity, synthesisSystemContent, synthesisWriteFrontmatter, toParserInput, } from "./helpers.js";
 const DEFAULT_SYNTHESIS_PROMPT = 'Generate OKF concept documents as JSON. Return {"concepts":[{"path":"concepts/name.md","title":"...","description":"...","tags":["..."],"body":"...","sourcePaths":["sources/name.md"]}]} only.';
 export class KnowledgeBase {
     root;
@@ -115,7 +115,9 @@ export class KnowledgeBase {
         const frontmatter = mergeWriteConceptFrontmatter(existingDocument === undefined
             ? { type: options.type ?? "Concept" }
             : toOkfFrontmatter(existingDocument.frontmatter), options, now);
-        const guardFailures = this.guardedWriteConceptFailures(options.guardedUpdate === true, existingDocument, frontmatter, options.body, options);
+        const guardFailures = options.guardedUpdate === true && existingDocument !== undefined
+            ? collectGuardedUpdateFailures(existingDocument.frontmatter, existingDocument.body, frontmatter, options.body, options)
+            : [];
         if (guardFailures.length > 0) {
             changeSet.failed.push({
                 path: outputRel,
@@ -167,9 +169,7 @@ export class KnowledgeBase {
             const content = await this.store.read(result.path);
             return `# ${result.path}\n${content}`;
         }));
-        const systemContent = options.outputSchema !== undefined
-            ? `${options.outputSchema}\n\n${options.systemPrompt ?? DEFAULT_SYNTHESIS_PROMPT}`
-            : (options.systemPrompt ?? DEFAULT_SYNTHESIS_PROMPT);
+        const systemContent = synthesisSystemContent(options, DEFAULT_SYNTHESIS_PROMPT);
         const response = await this.llm.generate({
             structuredOutput: { type: "json" },
             messages: [
@@ -185,9 +185,19 @@ export class KnowledgeBase {
             try {
                 const outputRel = this.conceptOutputPath(concept.path);
                 const existed = await this.store.exists(outputRel);
+                const existingDocument = existed ? parseMarkdown(await this.store.read(outputRel)) : undefined;
+                const synthesizeFrontmatterFailures = collectSynthesizeGuardedUpdateFailures(existingDocument?.frontmatter, concept);
+                if (synthesizeFrontmatterFailures.length > 0) {
+                    changeSet.failed.push({
+                        path: outputRel,
+                        code: "guarded_update_rejected",
+                        error: `Guarded update rejected: frontmatter keys would change or be dropped: ${synthesizeFrontmatterFailures.join(", ")}.`,
+                    });
+                    continue;
+                }
                 const result = await this.writeConcept({
                     ...concept,
-                    frontmatter: { ...concept.frontmatter, generated_by: "llm-wiki-sdk" },
+                    frontmatter: synthesisWriteFrontmatter(existed, concept),
                     guardedUpdate: existed,
                 });
                 changeSet.created.push(...result.created);
@@ -400,7 +410,7 @@ export class KnowledgeBase {
             return candidate;
         }
         const parsed = parseMarkdown(await this.store.read(candidate));
-        if (this.sourceCandidateMatches(parsed.frontmatter, sourceIdentity, resource)) {
+        if (sourceCandidateMatches(parsed.frontmatter, sourceIdentity, resource)) {
             return candidate;
         }
         const sourceId = sha256(sourceIdentity).slice(0, 12);
@@ -464,26 +474,6 @@ export class KnowledgeBase {
             warnings.push({ path: relPath, code: "broken_link", message: `Broken internal link: ${target}` });
         }
     }
-    sourceCandidateMatches(frontmatter, sourceIdentity, resource) {
-        return (this.sourceCandidateMatchesIdentity(frontmatter, sourceIdentity) ||
-            this.sourceCandidateMatchesUrlResource(frontmatter, resource));
-    }
-    sourceCandidateMatchesIdentity(frontmatter, sourceIdentity) {
-        return (frontmatter.source_id === sha256(sourceIdentity) ||
-            frontmatter.source_path === sourceIdentity ||
-            frontmatter.resource === sourceIdentity);
-    }
-    sourceCandidateMatchesUrlResource(frontmatter, resource) {
-        return (hasUrlScheme(resource) &&
-            frontmatter.source_id === undefined &&
-            (frontmatter.source_path === resource || frontmatter.resource === resource));
-    }
-    guardedWriteConceptFailures(guardedUpdate, existingDocument, nextFrontmatter, nextBody, options) {
-        if (!guardedUpdate || existingDocument === undefined) {
-            return [];
-        }
-        return collectGuardedUpdateFailures(existingDocument.frontmatter, existingDocument.body, nextFrontmatter, nextBody, options);
-    }
     emptyIngestManyChangeSet(changeSet) {
         changeSet.warnings.push({
             path: "ingestMany",
@@ -528,17 +518,4 @@ export class KnowledgeBase {
         const entry = [`\n## ${new Date().toISOString().slice(0, 10)}`, `* **${operation}**: ${lines.join("; ")}`].join("\n");
         await this.store.write(logRel, `${current.trimEnd()}\n${entry}\n`);
     }
-}
-function sourceDocumentUsesUrl(frontmatter) {
-    const sourceUrl = typeof frontmatter.resource === "string" ? frontmatter.resource : frontmatter.source_path;
-    return typeof sourceUrl === "string" && hasUrlScheme(sourceUrl);
-}
-function internalLinkTarget(relPath, target) {
-    const targetWithoutFragment = target.split("#", 1)[0] ?? "";
-    if (targetWithoutFragment === "") {
-        return undefined;
-    }
-    return targetWithoutFragment.startsWith("/")
-        ? targetWithoutFragment.slice(1)
-        : join(dirname(relPath), targetWithoutFragment);
 }

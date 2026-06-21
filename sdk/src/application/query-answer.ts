@@ -24,9 +24,16 @@ export function filterQueryAnswerText(text: string, retrievedPaths: Set<string>)
 
 function stripDisallowedQueryHtmlLinks(text: string, retrievedPaths: Set<string>): string {
   return text.replace(
-    /<a\b[^>]*\bhref\s*=\s*(["'])([^"']*)\1[^>]*>([\s\S]*?)<\/a>/gi,
-    (match, quote: string, href: string, label: string) => {
+    /<a\b[^>]*\bhref\s*=\s*(?:(["'])([^"']*)\1|([^\s"'=<>`]+))[^>]*>([\s\S]*?)<\/a>/gi,
+    (
+      match,
+      quote: string | undefined,
+      quotedHref: string | undefined,
+      unquotedHref: string | undefined,
+      label: string,
+    ) => {
       void quote;
+      const href = quotedHref ?? unquotedHref ?? "";
       return shouldStripQueryMarkdownLink(href.trim(), retrievedPaths) ? label : match;
     },
   );
