@@ -24,6 +24,15 @@ export declare class KnowledgeBase {
     private writeSource;
     private readConcepts;
     private sourceOutputPath;
+    private validateMarkdownDocument;
+    private validateReservedMarkdownFile;
+    private validateMarkdownLinks;
+    private validateMarkdownLink;
+    private sourceCandidateMatches;
+    private sourceCandidateMatchesIdentity;
+    private sourceCandidateMatchesUrlResource;
+    private guardedWriteConceptFailures;
+    private guardedUpdateFailures;
     private conceptOutputPath;
     private appendLog;
 }

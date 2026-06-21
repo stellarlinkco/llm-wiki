@@ -30,7 +30,14 @@ test("create writes the default OKF bundle layout", async () => {
   const status = await kb.status();
   assert.equal(status.root, root);
   assert.equal(status.concepts, 0);
-  assert.deepEqual((await readdir(root)).sort(), [".llm-wiki", "concepts", "index.md", "log.md", "references", "sources"]);
+  assert.deepEqual((await readdir(root)).sort(), [
+    ".llm-wiki",
+    "concepts",
+    "index.md",
+    "log.md",
+    "references",
+    "sources",
+  ]);
   assert.match(await readFile(join(root, "index.md"), "utf8"), /okf_version: "0.1"/);
 });
 
@@ -38,7 +45,11 @@ test("ingest creates a conformant OKF source concept and searchable index withou
   const root = await tempRoot();
   const sourceRoot = await tempRoot();
   const source = join(sourceRoot, "architecture.md");
-  await writeFile(source, "# Architecture\n\nClean Architecture keeps domain logic independent from infrastructure.\n", "utf8");
+  await writeFile(
+    source,
+    "# Architecture\n\nClean Architecture keeps domain logic independent from infrastructure.\n",
+    "utf8",
+  );
 
   const kb = await KnowledgeBase.create({ root });
   const changeSet = await kb.ingest({ path: source });
@@ -90,6 +101,161 @@ test("writeConcept creates a concept document, audit entry, and searchable index
   const results = await kb.search("digital transformation products");
   assert.equal(results[0].path, "concepts/company-overview.md");
   assert.equal(results[0].type, "Concept");
+});
+
+test("writeConcept round-trips unknown OKF type and custom frontmatter through public APIs", async () => {
+  const root = await tempRoot();
+  const exportRoot = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  const changeSet = await kb.writeConcept({
+    path: "concepts/vendor-artifact.md",
+    type: "VendorSpecificThing",
+    title: "Vendor Artifact",
+    description: "Domain-specific OKF metadata.",
+    tags: ["vendor"],
+    body: "Vendor-specific body.",
+    frontmatter: {
+      owner: "platform",
+      retention_policy: "gold",
+      custom_tuple: ["alpha", "beta"],
+    },
+  });
+
+  assert.deepEqual(changeSet.failed, []);
+  const validation = await kb.validate();
+  assert.deepEqual(validation.errors, []);
+
+  const concepts = await kb.listConcepts({ type: "VendorSpecificThing" });
+  assert.equal(concepts.length, 1);
+  assert.equal(concepts[0].frontmatter.type, "VendorSpecificThing");
+  assert.equal(concepts[0].frontmatter.owner, "platform");
+  assert.equal(concepts[0].frontmatter.retention_policy, "gold");
+  assert.deepEqual(concepts[0].frontmatter.custom_tuple, ["alpha", "beta"]);
+
+  const exportResult = await kb.export({ path: exportRoot });
+  assert.deepEqual(exportResult.failed, []);
+  const exported = await readFile(join(exportRoot, "concepts", "vendor-artifact.md"), "utf8");
+  assert.match(exported, /^type: VendorSpecificThing$/m);
+  assert.match(exported, /^owner: platform$/m);
+  assert.match(exported, /^retention_policy: gold$/m);
+  assert.match(exported, /^custom_tuple: \[alpha, beta\]$/m);
+});
+
+test("guarded writeConcept reports failed update before dropping frontmatter, headings, or citations", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/guarded.md",
+    type: "VendorSpecificThing",
+    title: "Guarded Concept",
+    body: "# Existing Heading\n\nKeep this citation [Source](sources/source.md).\n",
+    frontmatter: {
+      owner: "platform",
+      custom_metadata: "preserve me",
+    },
+  });
+
+  const before = await readFile(join(root, "concepts", "guarded.md"), "utf8");
+  const changeSet = await kb.writeConcept({
+    path: "concepts/guarded.md",
+    type: "VendorSpecificThing",
+    title: "Guarded Concept",
+    body: "Replacement without the heading or citation.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.equal(changeSet.failed[0].path, "concepts/guarded.md");
+  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
+  assert.match(changeSet.failed[0].error, /frontmatter/i);
+  assert.match(changeSet.failed[0].error, /heading/i);
+  assert.match(changeSet.failed[0].error, /citation/i);
+  assert.equal(await readFile(join(root, "concepts", "guarded.md"), "utf8"), before);
+});
+
+test("guarded writeConcept preserves an existing open OKF type when update omits type", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/vendor-open-type.md",
+    type: "VendorSpecificThing",
+    title: "Vendor Open Type",
+    body: "Existing body.",
+  });
+
+  const before = await readFile(join(root, "concepts", "vendor-open-type.md"), "utf8");
+  const changeSet = await kb.writeConcept({
+    path: "concepts/vendor-open-type.md",
+    title: "Vendor Open Type",
+    body: "Existing body with a guarded addition.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.equal(changeSet.failed[0].path, "concepts/vendor-open-type.md");
+  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
+  assert.match(changeSet.failed[0].error, /frontmatter/i);
+  assert.match(changeSet.failed[0].error, /type/i);
+  assert.equal(await readFile(join(root, "concepts", "vendor-open-type.md"), "utf8"), before);
+});
+
+test("guarded writeConcept rejects dropping existing tags", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/tagged.md",
+    title: "Tagged",
+    tags: ["preserve"],
+    body: "Existing body.",
+  });
+
+  const before = await readFile(join(root, "concepts", "tagged.md"), "utf8");
+  const changeSet = await kb.writeConcept({
+    path: "concepts/tagged.md",
+    title: "Tagged",
+    body: "Existing body with a guarded addition.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
+  assert.match(changeSet.failed[0].error, /tags/i);
+  assert.equal(await readFile(join(root, "concepts", "tagged.md"), "utf8"), before);
+});
+
+test("guarded writeConcept rejects dropping root-relative and relative bundle citations", async () => {
+  const root = await tempRoot();
+  const kb = await KnowledgeBase.create({ root });
+
+  await kb.writeConcept({
+    path: "concepts/bundle-citations.md",
+    title: "Bundle Citations",
+    body: "Keep [Root](/sources/root.md) and [Relative](../sources/relative.md).",
+  });
+
+  const before = await readFile(join(root, "concepts", "bundle-citations.md"), "utf8");
+  const changeSet = await kb.writeConcept({
+    path: "concepts/bundle-citations.md",
+    title: "Bundle Citations",
+    body: "Replacement without bundle-local citations.",
+    guardedUpdate: true,
+  });
+
+  assert.deepEqual(changeSet.updated, []);
+  assert.equal(changeSet.failed.length, 1);
+  assert.equal(changeSet.failed[0].path, "concepts/bundle-citations.md");
+  assert.equal(changeSet.failed[0].code, "guarded_update_rejected");
+  assert.match(changeSet.failed[0].error, /citation/i);
+  assert.match(changeSet.failed[0].error, /\/sources\/root\.md/);
+  assert.match(changeSet.failed[0].error, /\.\.\/sources\/relative\.md/);
+  assert.equal(await readFile(join(root, "concepts", "bundle-citations.md"), "utf8"), before);
 });
 
 test("search ranks broad concept matches above repeated single-term source noise", async () => {
@@ -187,40 +353,49 @@ test("status reports source documents separately from concept documents", async 
 
 test("crawl ingests same-origin sitemap URLs through the public SDK workflow", async () => {
   const root = await tempRoot();
-  await withUrlRequester({
-    "https://public.example/sitemap.xml": { contentType: "application/xml", body: `<?xml version="1.0" encoding="UTF-8"?>
+  await withUrlRequester(
+    {
+      "https://public.example/sitemap.xml": {
+        contentType: "application/xml",
+        body: `<?xml version="1.0" encoding="UTF-8"?>
 <urlset>
   <url><loc>https://public.example/docs/one.md</loc></url>
   <url><loc>https://other.example/docs/skip.md</loc></url>
   <url><loc>https://public.example/docs/two.md</loc></url>
-</urlset>` },
-    "https://public.example/docs/one.md": { contentType: "text/markdown", body: "# One\n\nFirst crawled source." },
-    "https://public.example/docs/two.md": { contentType: "text/markdown", body: "# Two\n\nSecond crawled source." },
-  }, async () => {
-    const kb = await KnowledgeBase.create({ root });
-    const changeSet = await kb.crawl({ sitemapUrl: "https://public.example/sitemap.xml" });
+</urlset>`,
+      },
+      "https://public.example/docs/one.md": { contentType: "text/markdown", body: "# One\n\nFirst crawled source." },
+      "https://public.example/docs/two.md": { contentType: "text/markdown", body: "# Two\n\nSecond crawled source." },
+    },
+    async () => {
+      const kb = await KnowledgeBase.create({ root });
+      const changeSet = await kb.crawl({ sitemapUrl: "https://public.example/sitemap.xml" });
 
-    assert.deepEqual(changeSet.failed, []);
-    assert.deepEqual(changeSet.created, ["sources/one.md", "sources/two.md"]);
-    assert.deepEqual(changeSet.skipped, ["https://other.example/docs/skip.md"]);
-    const results = await kb.search("crawled source");
-    assert.deepEqual(results.map((result) => result.path).sort(), ["sources/one.md", "sources/two.md"]);
-  });
+      assert.deepEqual(changeSet.failed, []);
+      assert.deepEqual(changeSet.created, ["sources/one.md", "sources/two.md"]);
+      assert.deepEqual(changeSet.skipped, ["https://other.example/docs/skip.md"]);
+      const results = await kb.search("crawled source");
+      assert.deepEqual(results.map((result) => result.path).sort(), ["sources/one.md", "sources/two.md"]);
+    },
+  );
 });
 
 test("crawl reports sitemap fetch failure without writing source documents", async () => {
   const root = await tempRoot();
-  await withUrlRequester({
-    "https://public.example/sitemap.xml": { status: 403, contentType: "application/xml", body: "Forbidden" },
-  }, async () => {
-    const kb = await KnowledgeBase.create({ root });
-    const changeSet = await kb.crawl({ sitemapUrl: "https://public.example/sitemap.xml" });
+  await withUrlRequester(
+    {
+      "https://public.example/sitemap.xml": { status: 403, contentType: "application/xml", body: "Forbidden" },
+    },
+    async () => {
+      const kb = await KnowledgeBase.create({ root });
+      const changeSet = await kb.crawl({ sitemapUrl: "https://public.example/sitemap.xml" });
 
-    assert.equal(changeSet.created.length, 0);
-    assert.equal(changeSet.failed.length, 1);
-    assert.equal(changeSet.failed[0].code, "FETCH_FAILED");
-    assert.deepEqual(await readdir(join(root, "sources")), []);
-  });
+      assert.equal(changeSet.created.length, 0);
+      assert.equal(changeSet.failed.length, 1);
+      assert.equal(changeSet.failed[0].code, "FETCH_FAILED");
+      assert.deepEqual(await readdir(join(root, "sources")), []);
+    },
+  );
 });
 
 test("synthesize writes LLM-produced concepts from retrieved source context", async () => {
@@ -236,33 +411,40 @@ test("synthesize writes LLM-produced concepts from retrieved source context", as
       assert.match(request.messages.at(-1).content, /sources\/company\.md/);
       return {
         text: JSON.stringify({
-          concepts: [{
-            path: "concepts/company-overview.md",
-            title: "Company Overview",
-            description: "Synthesized company positioning.",
-            tags: ["company"],
-            body: "StellarLink builds AI knowledge systems for enterprises.",
-            sourcePaths: ["sources/company.md"],
-          }],
+          concepts: [
+            {
+              path: "concepts/company-overview.md",
+              title: "Company Overview",
+              description: "Synthesized company positioning.",
+              tags: ["company"],
+              body: "StellarLink builds AI knowledge systems for enterprises.",
+              sourcePaths: ["sources/company.md"],
+            },
+          ],
         }),
         json: {
-          concepts: [{
-            path: "concepts/company-overview.md",
-            title: "Company Overview",
-            description: "Synthesized company positioning.",
-            tags: ["company"],
-            body: "StellarLink builds AI knowledge systems for enterprises.",
-            sourcePaths: ["sources/company.md"],
-          }],
+          concepts: [
+            {
+              path: "concepts/company-overview.md",
+              title: "Company Overview",
+              description: "Synthesized company positioning.",
+              tags: ["company"],
+              body: "StellarLink builds AI knowledge systems for enterprises.",
+              sourcePaths: ["sources/company.md"],
+            },
+          ],
         },
       };
     },
   };
 
-
   const kb = await KnowledgeBase.create({ root, llm });
   await kb.ingest({ path: source });
-  const changeSet = await kb.synthesize({ query: "StellarLink enterprises", instructions: "Create a company overview concept.", limit: 3 });
+  const changeSet = await kb.synthesize({
+    query: "StellarLink enterprises",
+    instructions: "Create a company overview concept.",
+    limit: 3,
+  });
 
   assert.deepEqual(changeSet.failed, []);
   assert.deepEqual(changeSet.created, ["concepts/company-overview.md"]);
@@ -284,11 +466,13 @@ test("synthesize grounds prompts in source documents rather than existing concep
       prompt = request.messages.at(-1).content;
       return {
         text: JSON.stringify({
-          concepts: [{
-            path: "concepts/interfaces.md",
-            title: "Interfaces",
-            body: "StellarLink interfaces are live.",
-          }],
+          concepts: [
+            {
+              path: "concepts/interfaces.md",
+              title: "Interfaces",
+              body: "StellarLink interfaces are live.",
+            },
+          ],
         }),
       };
     },
@@ -316,11 +500,13 @@ test("synthesize records a bundle-level audit entry", async () => {
     async generate() {
       return {
         text: JSON.stringify({
-          concepts: [{
-            path: "concepts/company-overview.md",
-            title: "Company Overview",
-            body: "StellarLink builds AI knowledge systems for enterprises.",
-          }],
+          concepts: [
+            {
+              path: "concepts/company-overview.md",
+              title: "Company Overview",
+              body: "StellarLink builds AI knowledge systems for enterprises.",
+            },
+          ],
         }),
       };
     },
@@ -353,7 +539,11 @@ test("listConcepts filters arbitrary OKF types and export copies bundle files wi
   const root = await tempRoot();
   const exportRoot = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
-  await writeFile(join(root, "concepts", "metric.md"), "---\ntype: Metric\ntitle: Weekly Active Users\nextra_field: preserved\n---\n\nA product metric.\n", "utf8");
+  await writeFile(
+    join(root, "concepts", "metric.md"),
+    "---\ntype: Metric\ntitle: Weekly Active Users\nextra_field: preserved\n---\n\nA product metric.\n",
+    "utf8",
+  );
   await kb.reindex();
 
   const concepts = await kb.listConcepts({ type: "Metric" });
@@ -373,7 +563,7 @@ test("export rejects destinations inside the bundle root", async () => {
 
   await assert.rejects(
     () => kb.export({ path: join(root, "export") }),
-    (error) => error instanceof ConfigurationError && /inside the bundle root/.test(error.message)
+    (error) => error instanceof ConfigurationError && /inside the bundle root/.test(error.message),
   );
 });
 
@@ -403,45 +593,60 @@ test("ingest truncates long URL slugs before writing source documents", async ()
   const root = await tempRoot();
   const longSlug = "spec-" + "very-long-title-".repeat(30);
   const url = `https://public.example/articles/${longSlug}`;
-  await withUrlRequester({
-    [url]: { contentType: "text/markdown", body: "# Long Article\n\nLong URL body." },
-  }, async () => {
-    const kb = await KnowledgeBase.create({ root });
-    const changeSet = await kb.ingest({ path: url });
+  await withUrlRequester(
+    {
+      [url]: { contentType: "text/markdown", body: "# Long Article\n\nLong URL body." },
+    },
+    async () => {
+      const kb = await KnowledgeBase.create({ root });
+      const changeSet = await kb.ingest({ path: url });
 
-    assert.deepEqual(changeSet.failed, []);
-    assert.equal(changeSet.created.length, 1);
-    assert.ok(changeSet.created[0].length < 240);
-    assert.match(await readFile(join(root, changeSet.created[0]), "utf8"), /Long URL body/);
-  });
+      assert.deepEqual(changeSet.failed, []);
+      assert.equal(changeSet.created.length, 1);
+      assert.ok(changeSet.created[0].length < 240);
+      assert.match(await readFile(join(root, changeSet.created[0]), "utf8"), /Long URL body/);
+    },
+  );
 });
 
 test("validate treats root-absolute links in URL sources as external site links", async () => {
   const root = await tempRoot();
-  await withUrlRequester({
-    "https://public.example/docs/page.md": { contentType: "text/markdown", body: "# Page\n\nSee [Guide](/posts/guide).\n" },
-  }, async () => {
-    const kb = await KnowledgeBase.create({ root });
-    await kb.ingest({ path: "https://public.example/docs/page.md" });
-    const validation = await kb.validate();
+  await withUrlRequester(
+    {
+      "https://public.example/docs/page.md": {
+        contentType: "text/markdown",
+        body: "# Page\n\nSee [Guide](/posts/guide).\n",
+      },
+    },
+    async () => {
+      const kb = await KnowledgeBase.create({ root });
+      await kb.ingest({ path: "https://public.example/docs/page.md" });
+      const validation = await kb.validate();
 
-    assert.deepEqual(validation.errors, []);
-    assert.deepEqual(validation.warnings, []);
-  });
+      assert.deepEqual(validation.errors, []);
+      assert.deepEqual(validation.warnings, []);
+    },
+  );
 });
 
 test("validate treats relative links in URL sources as external site links", async () => {
   const root = await tempRoot();
-  await withUrlRequester({
-    "https://public.example/docs/page.md": { contentType: "text/markdown", body: "# Page\n\nSee [Sibling](sibling.md) and [Parent](../README.md).\n" },
-  }, async () => {
-    const kb = await KnowledgeBase.create({ root });
-    await kb.ingest({ path: "https://public.example/docs/page.md" });
-    const validation = await kb.validate();
+  await withUrlRequester(
+    {
+      "https://public.example/docs/page.md": {
+        contentType: "text/markdown",
+        body: "# Page\n\nSee [Sibling](sibling.md) and [Parent](../README.md).\n",
+      },
+    },
+    async () => {
+      const kb = await KnowledgeBase.create({ root });
+      await kb.ingest({ path: "https://public.example/docs/page.md" });
+      const validation = await kb.validate();
 
-    assert.deepEqual(validation.errors, []);
-    assert.deepEqual(validation.warnings, []);
-  });
+      assert.deepEqual(validation.errors, []);
+      assert.deepEqual(validation.warnings, []);
+    },
+  );
 });
 
 test("ingest avoids OKF reserved filenames for source concepts", async () => {
@@ -480,16 +685,25 @@ test("custom parser and search adapters are injectable through KnowledgeBase opt
       indexed.push(...documents);
     },
     async search(query, options) {
-      return [{ path: `custom:${query}:${options.limit}`, title: "Custom", type: "Injected", score: 1, snippet: "custom", tags: [] }];
+      return [
+        {
+          path: `custom:${query}:${options.limit}`,
+          title: "Custom",
+          type: "Injected",
+          score: 1,
+          snippet: "custom",
+          tags: [],
+        },
+      ];
     },
     async exists() {
       return indexed.length > 0;
-    }
+    },
   };
   const parser = {
     async parse() {
       return { title: "Parsed Title", description: "Parsed description", body: "Injected adapter body" };
-    }
+    },
   };
 
   const kb = await KnowledgeBase.create({ root, parser, search });
@@ -498,7 +712,9 @@ test("custom parser and search adapters are injectable through KnowledgeBase opt
 
   assert.deepEqual(changeSet.failed, []);
   assert.equal(indexed[0].title, "Parsed Title");
-  assert.deepEqual(results, [{ path: "custom:adapter:3", title: "Custom", type: "Injected", score: 1, snippet: "custom", tags: [] }]);
+  assert.deepEqual(results, [
+    { path: "custom:adapter:3", title: "Custom", type: "Injected", score: 1, snippet: "custom", tags: [] },
+  ]);
 });
 
 test("ingest persists parser metadata and structured parser failures", async () => {
@@ -512,9 +728,15 @@ test("ingest persists parser metadata and structured parser failures", async () 
         title: "Audited Source",
         description: "Audited description",
         body: "Audited parser body",
-        metadata: { parser: "custom", page_count: 2, warnings: ["lossy conversion"], url: "https://user:secret@example.com/private?token=secret", audit: { callback: "https://user:secret@example.com/hook?token=secret" } },
+        metadata: {
+          parser: "custom",
+          page_count: 2,
+          warnings: ["lossy conversion"],
+          url: "https://user:secret@example.com/private?token=secret",
+          audit: { callback: "https://user:secret@example.com/hook?token=secret" },
+        },
       };
-    }
+    },
   };
 
   const kb = await KnowledgeBase.create({ root, parser });

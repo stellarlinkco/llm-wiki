@@ -57,6 +57,11 @@ export interface WriteConceptOptions {
   frontmatter?: Record<string, unknown>;
   /** Concept type. Defaults to "Concept". Override for domain-specific types. */
   type?: string;
+  /**
+   * When true and the target already exists, reject the update in ChangeSet.failed
+   * if it would drop existing frontmatter keys, top-level headings, or bundle citations.
+   */
+  guardedUpdate?: boolean;
 }
 
 export interface WriteIndexOptions {

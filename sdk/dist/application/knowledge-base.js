@@ -80,9 +80,9 @@ export class KnowledgeBase {
         }
         await this.appendLog("crawl", [
             `Sitemap: ${sitemapUrl.toString()}`,
-            `Created: ${changeSet.created.length}`,
-            `Updated: ${changeSet.updated.length}`,
-            `Failed: ${changeSet.failed.length}`,
+            `Created: ${String(changeSet.created.length)}`,
+            `Updated: ${String(changeSet.updated.length)}`,
+            `Failed: ${String(changeSet.failed.length)}`,
         ]);
         return changeSet;
     }
@@ -100,6 +100,15 @@ export class KnowledgeBase {
             timestamp: now,
             ...(options.sourcePaths === undefined ? {} : { source_paths: options.sourcePaths }),
         };
+        const guardFailures = await this.guardedWriteConceptFailures(options.guardedUpdate === true, existed, outputRel, frontmatter, options.body);
+        if (guardFailures.length > 0) {
+            changeSet.failed.push({
+                path: outputRel,
+                code: "guarded_update_rejected",
+                error: `Guarded update rejected: ${guardFailures.join("; ")}.`,
+            });
+            return changeSet;
+        }
         const document = serializeMarkdown(frontmatter, options.body);
         await this.store.write(outputRel, document);
         if (existed) {
@@ -248,63 +257,10 @@ export class KnowledgeBase {
             if (relPath.startsWith(".llm-wiki/")) {
                 continue;
             }
-            const name = basename(relPath);
             const content = await this.store.read(relPath);
             const parsed = parseMarkdown(content);
-            if (name === "index.md" || name === "log.md") {
-                if (parsed.frontmatterError !== undefined) {
-                    errors.push({ path: relPath, code: "malformed_frontmatter", message: parsed.frontmatterError });
-                }
-                else {
-                    validateReservedFile(parsed, relPath, errors);
-                }
-            }
-            else if (!parsed.hasFrontmatter) {
-                errors.push({
-                    path: relPath,
-                    code: "missing_frontmatter",
-                    message: "Concept document must start with YAML frontmatter.",
-                });
-            }
-            else if (parsed.frontmatterError !== undefined) {
-                errors.push({ path: relPath, code: "malformed_frontmatter", message: parsed.frontmatterError });
-            }
-            else if (typeof parsed.frontmatter.type !== "string" || parsed.frontmatter.type.trim() === "") {
-                errors.push({
-                    path: relPath,
-                    code: "missing_type",
-                    message: "Concept document frontmatter must include a non-empty type field.",
-                });
-            }
-            for (const target of extractMarkdownLinks(parsed.body)) {
-                if (isExternalLink(target) || target.startsWith("#")) {
-                    continue;
-                }
-                const targetWithoutFragment = target.split("#", 1)[0] ?? "";
-                if (targetWithoutFragment === "") {
-                    continue;
-                }
-                const sourceUrl = typeof parsed.frontmatter.resource === "string"
-                    ? parsed.frontmatter.resource
-                    : parsed.frontmatter.source_path;
-                if (typeof sourceUrl === "string" && hasUrlScheme(sourceUrl)) {
-                    continue;
-                }
-                const targetRel = targetWithoutFragment.startsWith("/")
-                    ? targetWithoutFragment.slice(1)
-                    : join(dirname(relPath), targetWithoutFragment);
-                if (targetRel.startsWith("..")) {
-                    errors.push({
-                        path: relPath,
-                        code: "link_outside_bundle",
-                        message: `Internal link escapes bundle root: ${target}`,
-                    });
-                    continue;
-                }
-                if (!(await this.store.exists(targetRel))) {
-                    warnings.push({ path: relPath, code: "broken_link", message: `Broken internal link: ${target}` });
-                }
-            }
+            this.validateMarkdownDocument(relPath, parsed, errors);
+            await this.validateMarkdownLinks(relPath, parsed, errors, warnings);
         }
         return { valid: errors.length === 0, errors, warnings };
     }
@@ -422,16 +378,106 @@ export class KnowledgeBase {
             return candidate;
         }
         const parsed = parseMarkdown(await this.store.read(candidate));
-        if (parsed.frontmatter.source_id === sha256(sourceIdentity) ||
-            parsed.frontmatter.source_path === sourceIdentity ||
-            parsed.frontmatter.resource === sourceIdentity ||
-            (hasUrlScheme(resource) &&
-                parsed.frontmatter.source_id === undefined &&
-                (parsed.frontmatter.source_path === resource || parsed.frontmatter.resource === resource))) {
+        if (this.sourceCandidateMatches(parsed.frontmatter, sourceIdentity, resource)) {
             return candidate;
         }
         const sourceId = sha256(sourceIdentity).slice(0, 12);
         return `sources/${slug}-${sourceId}.md`;
+    }
+    validateMarkdownDocument(relPath, parsed, errors) {
+        const name = basename(relPath);
+        if (name === "index.md" || name === "log.md") {
+            this.validateReservedMarkdownFile(parsed, relPath, errors);
+            return;
+        }
+        if (!parsed.hasFrontmatter) {
+            errors.push({
+                path: relPath,
+                code: "missing_frontmatter",
+                message: "Concept document must start with YAML frontmatter.",
+            });
+            return;
+        }
+        if (parsed.frontmatterError !== undefined) {
+            errors.push({ path: relPath, code: "malformed_frontmatter", message: parsed.frontmatterError });
+            return;
+        }
+        if (typeof parsed.frontmatter.type !== "string" || parsed.frontmatter.type.trim() === "") {
+            errors.push({
+                path: relPath,
+                code: "missing_type",
+                message: "Concept document frontmatter must include a non-empty type field.",
+            });
+        }
+    }
+    validateReservedMarkdownFile(parsed, relPath, errors) {
+        if (parsed.frontmatterError !== undefined) {
+            errors.push({ path: relPath, code: "malformed_frontmatter", message: parsed.frontmatterError });
+            return;
+        }
+        validateReservedFile(parsed, relPath, errors);
+    }
+    async validateMarkdownLinks(relPath, parsed, errors, warnings) {
+        for (const target of extractMarkdownLinks(parsed.body)) {
+            await this.validateMarkdownLink(relPath, parsed, target, errors, warnings);
+        }
+    }
+    async validateMarkdownLink(relPath, parsed, target, errors, warnings) {
+        if (isExternalLink(target) || target.startsWith("#") || sourceDocumentUsesUrl(parsed.frontmatter)) {
+            return;
+        }
+        const targetRel = internalLinkTarget(relPath, target);
+        if (targetRel === undefined) {
+            return;
+        }
+        if (targetRel.startsWith("..")) {
+            errors.push({
+                path: relPath,
+                code: "link_outside_bundle",
+                message: `Internal link escapes bundle root: ${target}`,
+            });
+            return;
+        }
+        if (!(await this.store.exists(targetRel))) {
+            warnings.push({ path: relPath, code: "broken_link", message: `Broken internal link: ${target}` });
+        }
+    }
+    sourceCandidateMatches(frontmatter, sourceIdentity, resource) {
+        return (this.sourceCandidateMatchesIdentity(frontmatter, sourceIdentity) ||
+            this.sourceCandidateMatchesUrlResource(frontmatter, resource));
+    }
+    sourceCandidateMatchesIdentity(frontmatter, sourceIdentity) {
+        return (frontmatter.source_id === sha256(sourceIdentity) ||
+            frontmatter.source_path === sourceIdentity ||
+            frontmatter.resource === sourceIdentity);
+    }
+    sourceCandidateMatchesUrlResource(frontmatter, resource) {
+        return (hasUrlScheme(resource) &&
+            frontmatter.source_id === undefined &&
+            (frontmatter.source_path === resource || frontmatter.resource === resource));
+    }
+    async guardedWriteConceptFailures(guardedUpdate, existed, outputRel, frontmatter, body) {
+        if (!guardedUpdate || !existed) {
+            return [];
+        }
+        const existing = parseMarkdown(await this.store.read(outputRel));
+        return this.guardedUpdateFailures(existing.frontmatter, existing.body, frontmatter, body);
+    }
+    guardedUpdateFailures(existingFrontmatter, existingBody, nextFrontmatter, nextBody) {
+        const failures = [];
+        const frontmatterFailures = guardedFrontmatterFailures(existingFrontmatter, nextFrontmatter);
+        if (frontmatterFailures.length > 0) {
+            failures.push(`frontmatter keys would change or be dropped: ${frontmatterFailures.join(", ")}`);
+        }
+        const droppedHeadings = topLevelHeadings(existingBody).filter((heading) => !topLevelHeadings(nextBody).includes(heading));
+        if (droppedHeadings.length > 0) {
+            failures.push(`top-level headings would be dropped: ${droppedHeadings.join(", ")}`);
+        }
+        const droppedCitations = bundleCitations(existingBody).filter((citation) => !bundleCitations(nextBody).includes(citation));
+        if (droppedCitations.length > 0) {
+            failures.push(`citations would be dropped: ${droppedCitations.join(", ")}`);
+        }
+        return failures;
     }
     conceptOutputPath(path) {
         const relPath = path.startsWith("/") ? path.slice(1) : path;
@@ -446,4 +492,56 @@ export class KnowledgeBase {
         const entry = [`\n## ${new Date().toISOString().slice(0, 10)}`, `* **${operation}**: ${lines.join("; ")}`].join("\n");
         await this.store.write(logRel, `${current.trimEnd()}\n${entry}\n`);
     }
+}
+function protectedFrontmatterKeys(frontmatter) {
+    return Object.keys(frontmatter).filter((key) => key !== "timestamp");
+}
+function topLevelHeadings(body) {
+    const headings = [];
+    for (const match of body.matchAll(/^#\s+(.+)$/gm)) {
+        const heading = match[1]?.trim();
+        if (heading !== undefined && heading !== "" && !headings.includes(heading)) {
+            headings.push(heading);
+        }
+    }
+    return headings;
+}
+function bundleCitations(body) {
+    const citations = new Set();
+    for (const link of extractMarkdownLinks(body)) {
+        if (isGuardedBundleCitation(link)) {
+            citations.add(link);
+        }
+    }
+    return [...citations];
+}
+function guardedFrontmatterFailures(existingFrontmatter, nextFrontmatter) {
+    const failures = [];
+    for (const key of protectedFrontmatterKeys(existingFrontmatter)) {
+        if (!(key in nextFrontmatter) || !frontmatterValuesEqual(existingFrontmatter[key], nextFrontmatter[key])) {
+            failures.push(key);
+        }
+    }
+    return failures;
+}
+function frontmatterValuesEqual(left, right) {
+    return JSON.stringify(left) === JSON.stringify(right);
+}
+function sourceDocumentUsesUrl(frontmatter) {
+    const sourceUrl = typeof frontmatter.resource === "string" ? frontmatter.resource : frontmatter.source_path;
+    return typeof sourceUrl === "string" && hasUrlScheme(sourceUrl);
+}
+function internalLinkTarget(relPath, target) {
+    const targetWithoutFragment = target.split("#", 1)[0] ?? "";
+    if (targetWithoutFragment === "") {
+        return undefined;
+    }
+    return targetWithoutFragment.startsWith("/")
+        ? targetWithoutFragment.slice(1)
+        : join(dirname(relPath), targetWithoutFragment);
+}
+function isGuardedBundleCitation(link) {
+    return (isBundleCitation(link) ||
+        /^\/(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(link) ||
+        /^(?:\.\.\/)+(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(link));
 }

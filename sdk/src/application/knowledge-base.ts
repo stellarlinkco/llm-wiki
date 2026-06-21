@@ -12,7 +12,6 @@ import type {
   LLMProvider,
   OkfFrontmatter,
   ParsedSource,
-  ParserSourceInput,
   QueryAnswer,
   QueryOptions,
   SearchAdapter,
@@ -26,7 +25,7 @@ import type {
   WriteConceptOptions,
   WriteIndexOptions,
 } from "../domain/types.js";
-import { ConfigurationError, ParserError, errorMessage } from "../domain/errors.js";
+import { ConfigurationError, errorMessage } from "../domain/errors.js";
 import { FilesystemBundleStore } from "../infrastructure/filesystem-store.js";
 import { LocalSearchAdapter } from "../infrastructure/local-search.js";
 import { DefaultSourceParser } from "../infrastructure/source-parser.js";
@@ -61,6 +60,8 @@ import {
 
 const DEFAULT_SYNTHESIS_PROMPT =
   'Generate OKF concept documents as JSON. Return {"concepts":[{"path":"concepts/name.md","title":"...","description":"...","tags":["..."],"body":"...","sourcePaths":["sources/name.md"]}]} only.';
+
+type ParsedMarkdownDocument = ReturnType<typeof parseMarkdown>;
 
 export class KnowledgeBase {
   private constructor(
@@ -147,9 +148,9 @@ export class KnowledgeBase {
     }
     await this.appendLog("crawl", [
       `Sitemap: ${sitemapUrl.toString()}`,
-      `Created: ${changeSet.created.length}`,
-      `Updated: ${changeSet.updated.length}`,
-      `Failed: ${changeSet.failed.length}`,
+      `Created: ${String(changeSet.created.length)}`,
+      `Updated: ${String(changeSet.updated.length)}`,
+      `Failed: ${String(changeSet.failed.length)}`,
     ]);
     return changeSet;
   }
@@ -168,6 +169,21 @@ export class KnowledgeBase {
       timestamp: now,
       ...(options.sourcePaths === undefined ? {} : { source_paths: options.sourcePaths }),
     };
+    const guardFailures = await this.guardedWriteConceptFailures(
+      options.guardedUpdate === true,
+      existed,
+      outputRel,
+      frontmatter,
+      options.body,
+    );
+    if (guardFailures.length > 0) {
+      changeSet.failed.push({
+        path: outputRel,
+        code: "guarded_update_rejected",
+        error: `Guarded update rejected: ${guardFailures.join("; ")}.`,
+      });
+      return changeSet;
+    }
     const document = serializeMarkdown(frontmatter, options.body);
     await this.store.write(outputRel, document);
     if (existed) {
@@ -331,62 +347,10 @@ export class KnowledgeBase {
       if (relPath.startsWith(".llm-wiki/")) {
         continue;
       }
-      const name = basename(relPath);
       const content = await this.store.read(relPath);
       const parsed = parseMarkdown(content);
-
-      if (name === "index.md" || name === "log.md") {
-        if (parsed.frontmatterError !== undefined) {
-          errors.push({ path: relPath, code: "malformed_frontmatter", message: parsed.frontmatterError });
-        } else {
-          validateReservedFile(parsed, relPath, errors);
-        }
-      } else if (!parsed.hasFrontmatter) {
-        errors.push({
-          path: relPath,
-          code: "missing_frontmatter",
-          message: "Concept document must start with YAML frontmatter.",
-        });
-      } else if (parsed.frontmatterError !== undefined) {
-        errors.push({ path: relPath, code: "malformed_frontmatter", message: parsed.frontmatterError });
-      } else if (typeof parsed.frontmatter.type !== "string" || parsed.frontmatter.type.trim() === "") {
-        errors.push({
-          path: relPath,
-          code: "missing_type",
-          message: "Concept document frontmatter must include a non-empty type field.",
-        });
-      }
-
-      for (const target of extractMarkdownLinks(parsed.body)) {
-        if (isExternalLink(target) || target.startsWith("#")) {
-          continue;
-        }
-        const targetWithoutFragment = target.split("#", 1)[0] ?? "";
-        if (targetWithoutFragment === "") {
-          continue;
-        }
-        const sourceUrl =
-          typeof parsed.frontmatter.resource === "string"
-            ? parsed.frontmatter.resource
-            : parsed.frontmatter.source_path;
-        if (typeof sourceUrl === "string" && hasUrlScheme(sourceUrl)) {
-          continue;
-        }
-        const targetRel = targetWithoutFragment.startsWith("/")
-          ? targetWithoutFragment.slice(1)
-          : join(dirname(relPath), targetWithoutFragment);
-        if (targetRel.startsWith("..")) {
-          errors.push({
-            path: relPath,
-            code: "link_outside_bundle",
-            message: `Internal link escapes bundle root: ${target}`,
-          });
-          continue;
-        }
-        if (!(await this.store.exists(targetRel))) {
-          warnings.push({ path: relPath, code: "broken_link", message: `Broken internal link: ${target}` });
-        }
-      }
+      this.validateMarkdownDocument(relPath, parsed, errors);
+      await this.validateMarkdownLinks(relPath, parsed, errors, warnings);
     }
 
     return { valid: errors.length === 0, errors, warnings };
@@ -516,19 +480,159 @@ export class KnowledgeBase {
     }
 
     const parsed = parseMarkdown(await this.store.read(candidate));
-    if (
-      parsed.frontmatter.source_id === sha256(sourceIdentity) ||
-      parsed.frontmatter.source_path === sourceIdentity ||
-      parsed.frontmatter.resource === sourceIdentity ||
-      (hasUrlScheme(resource) &&
-        parsed.frontmatter.source_id === undefined &&
-        (parsed.frontmatter.source_path === resource || parsed.frontmatter.resource === resource))
-    ) {
+    if (this.sourceCandidateMatches(parsed.frontmatter, sourceIdentity, resource)) {
       return candidate;
     }
 
     const sourceId = sha256(sourceIdentity).slice(0, 12);
     return `sources/${slug}-${sourceId}.md`;
+  }
+
+  private validateMarkdownDocument(relPath: string, parsed: ParsedMarkdownDocument, errors: ValidationFinding[]): void {
+    const name = basename(relPath);
+    if (name === "index.md" || name === "log.md") {
+      this.validateReservedMarkdownFile(parsed, relPath, errors);
+      return;
+    }
+    if (!parsed.hasFrontmatter) {
+      errors.push({
+        path: relPath,
+        code: "missing_frontmatter",
+        message: "Concept document must start with YAML frontmatter.",
+      });
+      return;
+    }
+    if (parsed.frontmatterError !== undefined) {
+      errors.push({ path: relPath, code: "malformed_frontmatter", message: parsed.frontmatterError });
+      return;
+    }
+    if (typeof parsed.frontmatter.type !== "string" || parsed.frontmatter.type.trim() === "") {
+      errors.push({
+        path: relPath,
+        code: "missing_type",
+        message: "Concept document frontmatter must include a non-empty type field.",
+      });
+    }
+  }
+
+  private validateReservedMarkdownFile(
+    parsed: ParsedMarkdownDocument,
+    relPath: string,
+    errors: ValidationFinding[],
+  ): void {
+    if (parsed.frontmatterError !== undefined) {
+      errors.push({ path: relPath, code: "malformed_frontmatter", message: parsed.frontmatterError });
+      return;
+    }
+    validateReservedFile(parsed, relPath, errors);
+  }
+
+  private async validateMarkdownLinks(
+    relPath: string,
+    parsed: ParsedMarkdownDocument,
+    errors: ValidationFinding[],
+    warnings: ValidationFinding[],
+  ): Promise<void> {
+    for (const target of extractMarkdownLinks(parsed.body)) {
+      await this.validateMarkdownLink(relPath, parsed, target, errors, warnings);
+    }
+  }
+
+  private async validateMarkdownLink(
+    relPath: string,
+    parsed: ParsedMarkdownDocument,
+    target: string,
+    errors: ValidationFinding[],
+    warnings: ValidationFinding[],
+  ): Promise<void> {
+    if (isExternalLink(target) || target.startsWith("#") || sourceDocumentUsesUrl(parsed.frontmatter)) {
+      return;
+    }
+    const targetRel = internalLinkTarget(relPath, target);
+    if (targetRel === undefined) {
+      return;
+    }
+    if (targetRel.startsWith("..")) {
+      errors.push({
+        path: relPath,
+        code: "link_outside_bundle",
+        message: `Internal link escapes bundle root: ${target}`,
+      });
+      return;
+    }
+    if (!(await this.store.exists(targetRel))) {
+      warnings.push({ path: relPath, code: "broken_link", message: `Broken internal link: ${target}` });
+    }
+  }
+
+  private sourceCandidateMatches(
+    frontmatter: Record<string, unknown>,
+    sourceIdentity: string,
+    resource: string,
+  ): boolean {
+    return (
+      this.sourceCandidateMatchesIdentity(frontmatter, sourceIdentity) ||
+      this.sourceCandidateMatchesUrlResource(frontmatter, resource)
+    );
+  }
+
+  private sourceCandidateMatchesIdentity(frontmatter: Record<string, unknown>, sourceIdentity: string): boolean {
+    return (
+      frontmatter.source_id === sha256(sourceIdentity) ||
+      frontmatter.source_path === sourceIdentity ||
+      frontmatter.resource === sourceIdentity
+    );
+  }
+
+  private sourceCandidateMatchesUrlResource(frontmatter: Record<string, unknown>, resource: string): boolean {
+    return (
+      hasUrlScheme(resource) &&
+      frontmatter.source_id === undefined &&
+      (frontmatter.source_path === resource || frontmatter.resource === resource)
+    );
+  }
+
+  private async guardedWriteConceptFailures(
+    guardedUpdate: boolean,
+    existed: boolean,
+    outputRel: string,
+    frontmatter: OkfFrontmatter,
+    body: string,
+  ): Promise<string[]> {
+    if (!guardedUpdate || !existed) {
+      return [];
+    }
+    const existing = parseMarkdown(await this.store.read(outputRel));
+    return this.guardedUpdateFailures(existing.frontmatter, existing.body, frontmatter, body);
+  }
+
+  private guardedUpdateFailures(
+    existingFrontmatter: Record<string, unknown>,
+    existingBody: string,
+    nextFrontmatter: Record<string, unknown>,
+    nextBody: string,
+  ): string[] {
+    const failures: string[] = [];
+    const frontmatterFailures = guardedFrontmatterFailures(existingFrontmatter, nextFrontmatter);
+    if (frontmatterFailures.length > 0) {
+      failures.push(`frontmatter keys would change or be dropped: ${frontmatterFailures.join(", ")}`);
+    }
+
+    const droppedHeadings = topLevelHeadings(existingBody).filter(
+      (heading) => !topLevelHeadings(nextBody).includes(heading),
+    );
+    if (droppedHeadings.length > 0) {
+      failures.push(`top-level headings would be dropped: ${droppedHeadings.join(", ")}`);
+    }
+
+    const droppedCitations = bundleCitations(existingBody).filter(
+      (citation) => !bundleCitations(nextBody).includes(citation),
+    );
+    if (droppedCitations.length > 0) {
+      failures.push(`citations would be dropped: ${droppedCitations.join(", ")}`);
+    }
+
+    return failures;
   }
 
   private conceptOutputPath(path: string): string {
@@ -547,4 +651,69 @@ export class KnowledgeBase {
     );
     await this.store.write(logRel, `${current.trimEnd()}\n${entry}\n`);
   }
+}
+
+function protectedFrontmatterKeys(frontmatter: Record<string, unknown>): string[] {
+  return Object.keys(frontmatter).filter((key) => key !== "timestamp");
+}
+
+function topLevelHeadings(body: string): string[] {
+  const headings: string[] = [];
+  for (const match of body.matchAll(/^#\s+(.+)$/gm)) {
+    const heading = match[1]?.trim();
+    if (heading !== undefined && heading !== "" && !headings.includes(heading)) {
+      headings.push(heading);
+    }
+  }
+  return headings;
+}
+
+function bundleCitations(body: string): string[] {
+  const citations = new Set<string>();
+  for (const link of extractMarkdownLinks(body)) {
+    if (isGuardedBundleCitation(link)) {
+      citations.add(link);
+    }
+  }
+  return [...citations];
+}
+
+function guardedFrontmatterFailures(
+  existingFrontmatter: Record<string, unknown>,
+  nextFrontmatter: Record<string, unknown>,
+): string[] {
+  const failures: string[] = [];
+  for (const key of protectedFrontmatterKeys(existingFrontmatter)) {
+    if (!(key in nextFrontmatter) || !frontmatterValuesEqual(existingFrontmatter[key], nextFrontmatter[key])) {
+      failures.push(key);
+    }
+  }
+  return failures;
+}
+
+function frontmatterValuesEqual(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function sourceDocumentUsesUrl(frontmatter: Record<string, unknown>): boolean {
+  const sourceUrl = typeof frontmatter.resource === "string" ? frontmatter.resource : frontmatter.source_path;
+  return typeof sourceUrl === "string" && hasUrlScheme(sourceUrl);
+}
+
+function internalLinkTarget(relPath: string, target: string): string | undefined {
+  const targetWithoutFragment = target.split("#", 1)[0] ?? "";
+  if (targetWithoutFragment === "") {
+    return undefined;
+  }
+  return targetWithoutFragment.startsWith("/")
+    ? targetWithoutFragment.slice(1)
+    : join(dirname(relPath), targetWithoutFragment);
+}
+
+function isGuardedBundleCitation(link: string): boolean {
+  return (
+    isBundleCitation(link) ||
+    /^\/(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(link) ||
+    /^(?:\.\.\/)+(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(link)
+  );
 }

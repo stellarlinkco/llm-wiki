@@ -35,6 +35,12 @@ export type {
   WriteIndexOptions,
 } from "./domain/types.js";
 export { KnowledgeBase } from "./application/knowledge-base.js";
+export {
+  OKF_METADATA_ENRICHMENT_PROMPT,
+  OKF_PROMPT_ASSETS,
+  OKF_WEB_SOURCE_AUGMENTATION_PROMPT,
+} from "./application/okf-prompts.js";
+export type { OkfPromptAsset } from "./application/okf-prompts.js";
 export { LocalSearchAdapter } from "./infrastructure/local-search.js";
 export { DefaultSourceParser } from "./infrastructure/source-parser.js";
 export { CompositeSourceParser } from "./infrastructure/parsers/composite.js";
