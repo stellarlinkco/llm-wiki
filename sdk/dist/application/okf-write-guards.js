@@ -1,4 +1,4 @@
-import { extractBundleCitations, extractMarkdownLinks, isBundleCitation, toOkfFrontmatter, } from "../infrastructure/markdown.js";
+import { extractBundleCitations, extractMarkdownLinks, normalizeBundleCitationPath, toOkfFrontmatter, } from "../infrastructure/markdown.js";
 export function mergeWriteConceptFrontmatter(existingFrontmatter, options, now) {
     const type = resolveWriteConceptType(options, existingFrontmatter);
     const requestedFrontmatter = toOkfFrontmatter({
@@ -175,18 +175,7 @@ function canonicalGuardedCitationSet(body) {
     return new Set(bundleCitations(body).map(canonicalGuardedCitation));
 }
 function canonicalGuardedCitation(citation) {
-    if (isBundleCitation(citation)) {
-        return citation;
-    }
-    const rootRelative = /^\/((?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md)$/.exec(citation);
-    if (rootRelative?.[1] !== undefined) {
-        return rootRelative[1];
-    }
-    const relative = /^(?:\.\.\/)+((?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md)$/.exec(citation);
-    if (relative?.[1] !== undefined) {
-        return relative[1];
-    }
-    return citation;
+    return normalizeBundleCitationPath(citation) ?? citation;
 }
 function guardedFrontmatterFailures(existingFrontmatter, nextFrontmatter, options) {
     const failures = [];
@@ -240,9 +229,7 @@ function stableJsonStringify(value) {
     return `{${keys.map((key) => `${JSON.stringify(key)}:${stableJsonStringify(record[key])}`).join(",")}}`;
 }
 function isGuardedBundleCitation(link) {
-    return (isBundleCitation(link) ||
-        /^\/(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(link) ||
-        /^(?:\.\.\/)+(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(link));
+    return normalizeBundleCitationPath(link) !== undefined;
 }
 function schemaLikeHeading(line) {
     const match = /^(#{1,2})\s+(.+?)\s*$/.exec(line);

@@ -42,6 +42,7 @@ import {
   validateReservedFile,
 } from "../infrastructure/markdown.js";
 import { collectGuardedUpdateFailures, mergeWriteConceptFrontmatter } from "./okf-write-guards.js";
+import { filterQueryAnswerText } from "./query-answer.js";
 import { tokenize } from "./search.js";
 import {
   boundedSlug,
@@ -349,10 +350,11 @@ export class KnowledgeBase {
       ],
     });
     const retrievedPaths = new Set(retrieved.map((result) => result.path));
+    const filteredCitations =
+      response.citations?.filter((citation) => isBundleCitation(citation) && retrievedPaths.has(citation)) ?? [];
     const answer: QueryAnswer = {
-      text: response.text,
-      citations:
-        response.citations?.filter((citation) => isBundleCitation(citation) && retrievedPaths.has(citation)) ?? [],
+      text: filterQueryAnswerText(response.text, retrievedPaths),
+      citations: filteredCitations,
       retrieved,
     };
     if (response.usage !== undefined) {

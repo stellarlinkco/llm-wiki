@@ -18,7 +18,7 @@ const REQUIRED_SHARED_RULES = [
   /read[- ]before[- ]write/i,
   /read existing/i,
   /preserve existing frontmatter/i,
-  /preserve existing top-level headings/i,
+  /preserve existing top-level H1\/H2 headings/i,
   /preserve or append citations/i,
   /do not invent citations/i,
   /low-signal.*skip|skip.*low-signal/i,

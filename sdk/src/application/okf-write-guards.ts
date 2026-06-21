@@ -2,7 +2,7 @@ import type { OkfFrontmatter, WriteConceptOptions } from "../domain/types.js";
 import {
   extractBundleCitations,
   extractMarkdownLinks,
-  isBundleCitation,
+  normalizeBundleCitationPath,
   toOkfFrontmatter,
 } from "../infrastructure/markdown.js";
 
@@ -210,18 +210,7 @@ function canonicalGuardedCitationSet(body: string): Set<string> {
 }
 
 function canonicalGuardedCitation(citation: string): string {
-  if (isBundleCitation(citation)) {
-    return citation;
-  }
-  const rootRelative = /^\/((?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md)$/.exec(citation);
-  if (rootRelative?.[1] !== undefined) {
-    return rootRelative[1];
-  }
-  const relative = /^(?:\.\.\/)+((?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md)$/.exec(citation);
-  if (relative?.[1] !== undefined) {
-    return relative[1];
-  }
-  return citation;
+  return normalizeBundleCitationPath(citation) ?? citation;
 }
 
 function guardedFrontmatterFailures(
@@ -285,11 +274,7 @@ function stableJsonStringify(value: unknown): string {
 }
 
 function isGuardedBundleCitation(link: string): boolean {
-  return (
-    isBundleCitation(link) ||
-    /^\/(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(link) ||
-    /^(?:\.\.\/)+(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(link)
-  );
+  return normalizeBundleCitationPath(link) !== undefined;
 }
 
 interface SchemaFencedBlock {

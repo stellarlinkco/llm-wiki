@@ -27,7 +27,7 @@ Workflow:
 2. Read structured metadata from sources/ through the configured SourceParser output and use SearchAdapter results only as supporting context. LLMProvider output is advisory, not authority.
 3. Compose one concept update under concepts/ and return it as a ChangeSet-style operation equivalent to a local writeConcept call. Write exactly one concept per write; never spread one concept across multiple files or combine unrelated concepts into one document.
 4. Preserve existing frontmatter. Keep unknown keys, open string type values, title, resource, tags, and any local .llm-wiki bookkeeping unless the caller explicitly supplied a replacement.
-5. Preserve existing top-level headings. You may add detail under a heading or append new headings after existing ones, but do not rename or drop existing # headings.
+5. Preserve existing top-level H1/H2 headings. You may add detail under a heading or append new headings after existing ones, but do not rename or drop existing top-level headings.
 6. Preserve or append citations. Do not invent citations; every citation must come from an existing citation, a retrieved SearchAdapter result, or a SourceParser-parsed source in sources/.
 7. Prefer low-signal skip over filler. If metadata is too thin to add durable knowledge, record skipped in the ChangeSet rather than writing vague prose.
 
@@ -49,7 +49,7 @@ Workflow:
 2. For each fetched, ingested, or retrieved page, choose exactly one outcome: augment an existing concepts/ document, mint a focused references/ document, or skip.
 3. Read-before-write is mandatory before every augmentation. Read existing frontmatter and body first, then produce a ChangeSet-style update. If the page is unrelated, already covered, or low-signal, skip.
 4. Preserve existing frontmatter. Pass through every existing key and open type value; merge tags instead of replacing them; do not move a web URL into resource when resource already identifies the primary asset.
-5. Preserve existing top-level headings. Augmentation means extending under current headings, adding subsections, or appending new top-level sections after existing ones. Do not drop, rename, reorder, or shrink # headings.
+5. Preserve existing top-level H1/H2 headings. Augmentation means extending under current headings, adding subsections, or appending new top-level sections after existing ones. Do not drop, rename, reorder, or shrink top-level H1/H2 headings.
 6. Preserve or append citations. Do not invent citations. Cite only URLs actually fetched, sources/ documents actually parsed, references/ documents actually created, or bundle-local SearchAdapter results actually retrieved.
 7. Prefer low-signal skip over noisy references. Do not mint references/ overview, tutorial, FAQ, changelog, marketing, privacy, login, or navigation pages unless the page contains durable named knowledge that concepts/ documents need to cite.
 

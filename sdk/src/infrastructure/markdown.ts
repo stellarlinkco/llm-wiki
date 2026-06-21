@@ -76,7 +76,7 @@ function parseYamlValue(value: string): unknown {
 }
 
 function stripYamlComment(value: string): string {
-  let quote: "\"" | "'" | undefined;
+  let quote: '"' | "'" | undefined;
   let escaped = false;
   for (let index = 0; index < value.length; index += 1) {
     const char = value[index];
@@ -94,7 +94,7 @@ function stripYamlComment(value: string): string {
       }
       continue;
     }
-    if (char === "\"" || char === "'") {
+    if (char === '"' || char === "'") {
       quote = char;
       continue;
     }
@@ -108,7 +108,7 @@ function stripYamlComment(value: string): string {
 function splitYamlInlineList(inner: string): string[] {
   const values: string[] = [];
   let current = "";
-  let quote: "\"" | "'" | undefined;
+  let quote: '"' | "'" | undefined;
   let escaped = false;
   for (const char of inner) {
     if (escaped) {
@@ -128,7 +128,7 @@ function splitYamlInlineList(inner: string): string[] {
       }
       continue;
     }
-    if (char === "\"" || char === "'") {
+    if (char === '"' || char === "'") {
       current += char;
       quote = char;
       continue;
@@ -176,11 +176,13 @@ function serializeYamlValue(value: unknown): string {
 }
 
 function yamlScalar(value: string): string {
-  if (value === ""
-    || /[:{}[\]"'\n\r#&*!|>,]/.test(value)
-    || /^\d{4}-\d{2}-\d{2}T/.test(value)
-    || /^[-?:](?:\s|$)/.test(value)
-    || /^(?:true|false|null|~)$/i.test(value)) {
+  if (
+    value === "" ||
+    /[:{}[\]"'\n\r#&*!|>,]/.test(value) ||
+    /^\d{4}-\d{2}-\d{2}T/.test(value) ||
+    /^[-?:](?:\s|$)/.test(value) ||
+    /^(?:true|false|null|~)$/i.test(value)
+  ) {
     return `"${value.replace(/\\/g, "\\\\").replace(/\r\n?/g, "\n").replace(/\n/g, "\\n").replace(/"/g, '\\"')}"`;
   }
   return value;
@@ -209,7 +211,11 @@ export function validateReservedFile(parsed: ParsedMarkdown, path: string, error
   const allowed = path === "index.md" ? new Set(["okf_version"]) : new Set<string>();
   for (const key of Object.keys(parsed.frontmatter)) {
     if (!allowed.has(key)) {
-      errors.push({ path, code: "reserved_frontmatter", message: `Reserved file contains unsupported frontmatter field: ${key}` });
+      errors.push({
+        path,
+        code: "reserved_frontmatter",
+        message: `Reserved file contains unsupported frontmatter field: ${key}`,
+      });
     }
   }
 }
@@ -268,14 +274,55 @@ function parseMarkdownLinkDestination(raw: string | undefined): string {
 
 export function extractBundleCitations(text: string): string[] {
   const citations: string[] = [];
-  const citationPattern = /\b(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md\b/g;
-  for (const match of text.matchAll(citationPattern)) {
-    const citation = match[0];
-    if (isBundleCitation(citation) && !citations.includes(citation)) {
-      citations.push(citation);
+  for (const mention of extractBundleCitationMentions(text)) {
+    if (!citations.includes(mention.path)) {
+      citations.push(mention.path);
     }
   }
   return citations;
+}
+
+const BUNDLE_CITATION_MENTION_PATTERN =
+  /(?:(?:\.\.\/)+|\.\/|\/|\b)((?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md)\b/g;
+
+export function extractBundleCitationMentions(text: string): { path: string; raw: string }[] {
+  const mentions: { path: string; raw: string }[] = [];
+  for (const match of text.matchAll(BUNDLE_CITATION_MENTION_PATTERN)) {
+    const path = match[1] ?? "";
+    const raw = match[0];
+    if (!isBundleCitation(path)) {
+      continue;
+    }
+    if (!mentions.some((mention) => mention.raw === raw && mention.path === path)) {
+      mentions.push({ path, raw });
+    }
+  }
+  return mentions;
+}
+
+export function normalizeBundleCitationPath(target: string): string | undefined {
+  const withoutFragment = target.split("#", 1)[0] ?? "";
+  if (withoutFragment === "") {
+    return undefined;
+  }
+  if (isBundleCitation(withoutFragment)) {
+    return withoutFragment;
+  }
+  const rootRelative = /^\/((?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md)$/.exec(withoutFragment);
+  if (rootRelative?.[1] !== undefined) {
+    return rootRelative[1];
+  }
+  const parentRelative = /^(?:\.\.\/)+((?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md)$/.exec(
+    withoutFragment,
+  );
+  if (parentRelative?.[1] !== undefined) {
+    return parentRelative[1];
+  }
+  const dotRelative = /^\.\/((?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md)$/.exec(withoutFragment);
+  if (dotRelative?.[1] !== undefined) {
+    return dotRelative[1];
+  }
+  return undefined;
 }
 
 export function isExternalLink(target: string): boolean {
@@ -283,7 +330,9 @@ export function isExternalLink(target: string): boolean {
 }
 
 export function isBundleCitation(citation: string): boolean {
-  return /^(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(citation) && !citation.split("/").includes("..");
+  return (
+    /^(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(citation) && !citation.split("/").includes("..")
+  );
 }
 
 export function extractTitle(content: string, path: string): string {
@@ -292,7 +341,9 @@ export function extractTitle(content: string, path: string): string {
 }
 
 export function titleFromPath(path: string): string {
-  return basename(path, extname(path)).replace(/[-_]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+  return basename(path, extname(path))
+    .replace(/[-_]+/g, " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 export function firstPlainLine(content: string): string {
@@ -311,5 +362,8 @@ export function normalizeSourceBody(content: string): string {
 }
 
 function stripMarkdown(line: string): string {
-  return line.replace(/\[([^\]]+)]\([^)]+\)/g, "$1").replace(/[*_`]/g, "").trim();
+  return line
+    .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
+    .replace(/[*_`]/g, "")
+    .trim();
 }

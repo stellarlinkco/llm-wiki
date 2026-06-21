@@ -167,6 +167,39 @@ test("query filters custom SearchAdapter provider citations to retrieved bundle 
   );
 });
 
+test("query strips non-retrieved bundle citations and external links from answer text", async () => {
+  const root = await tempRoot();
+  const sourceRoot = await tempRoot();
+  const source = join(sourceRoot, "architecture.md");
+  await writeFile(source, "# Architecture\n\nClean Architecture separates domain logic from infrastructure.\n", "utf8");
+  const provider = {
+    async generate() {
+      return {
+        text: [
+          "See [missing](concepts/not-retrieved.md) and [ok](sources/architecture.md).",
+          "Relative [missing](../concepts/not-retrieved.md) and [ok](../sources/architecture.md).",
+          "External [fake](https://fake.example/doc) and autolink <https://fake.example/autolink>.",
+          "Bare concepts/not-retrieved.md and ./concepts/not-retrieved.md mention.",
+        ].join(" "),
+        citations: [],
+      };
+    },
+  };
+
+  const kb = await KnowledgeBase.create({ root, llm: provider });
+  await kb.ingest({ path: source });
+  const answer = await kb.query("What does Clean Architecture separate?");
+
+  assert.deepEqual(answer.citations, []);
+  assert.match(answer.text, /\[ok\]\(sources\/architecture\.md\)/);
+  assert.match(answer.text, /\[ok\]\(\.\.\/sources\/architecture\.md\)/);
+  assert.doesNotMatch(answer.text, /concepts\/not-retrieved\.md/);
+  assert.doesNotMatch(answer.text, /\.\/concepts\/not-retrieved\.md/);
+  assert.doesNotMatch(answer.text, /https:\/\/fake\.example/);
+  assert.match(answer.text, /\bmissing\b/);
+  assert.match(answer.text, /\bfake\b/);
+});
+
 test("query fails clearly without an LLM provider", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });

@@ -6,6 +6,7 @@ import { DefaultSourceParser } from "../infrastructure/source-parser.js";
 import { fetchUrlInput } from "../infrastructure/parsers/url.js";
 import { extractMarkdownLinks, isExternalLink, isBundleCitation, parseMarkdown, serializeMarkdown, toOkfFrontmatter, titleFromPath, validateReservedFile, } from "../infrastructure/markdown.js";
 import { collectGuardedUpdateFailures, mergeWriteConceptFrontmatter } from "./okf-write-guards.js";
+import { filterQueryAnswerText } from "./query-answer.js";
 import { tokenize } from "./search.js";
 import { boundedSlug, changeFailure, conceptsFromSynthesis, emptyChangeSet, extractSitemapLocations, failurePath, frontmatterMetadata, hasUrlScheme, publicResource, sha256, slugify, sourceBasename, sourceIdentity, toParserInput, } from "./helpers.js";
 const DEFAULT_SYNTHESIS_PROMPT = 'Generate OKF concept documents as JSON. Return {"concepts":[{"path":"concepts/name.md","title":"...","description":"...","tags":["..."],"body":"...","sourcePaths":["sources/name.md"]}]} only.';
@@ -256,9 +257,10 @@ export class KnowledgeBase {
             ],
         });
         const retrievedPaths = new Set(retrieved.map((result) => result.path));
+        const filteredCitations = response.citations?.filter((citation) => isBundleCitation(citation) && retrievedPaths.has(citation)) ?? [];
         const answer = {
-            text: response.text,
-            citations: response.citations?.filter((citation) => isBundleCitation(citation) && retrievedPaths.has(citation)) ?? [],
+            text: filterQueryAnswerText(response.text, retrievedPaths),
+            citations: filteredCitations,
             retrieved,
         };
         if (response.usage !== undefined) {

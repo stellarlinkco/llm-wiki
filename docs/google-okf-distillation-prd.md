@@ -171,21 +171,21 @@
 - AC-002: A document with custom frontmatter keys survives parse → update/export → parse with those keys unchanged.
 - AC-003: Updating a document description does not drop unrelated frontmatter keys.
 - AC-004: Malformed YAML or missing required local fields is reported as a validation/parser failure without partial writes.
-- AC-005: Multi-file ingest reports one malformed document in `ChangeSet.failed` while still processing valid documents.
+- AC-005: `KnowledgeBase.ingestMany({ paths })` reports one malformed document in `ChangeSet.failed` while still processing valid documents.
 - AC-006: Local prompt assets exist for Google OKF metadata enrichment and web/source augmentation, adapted to `llm-wiki` terminology.
 - AC-007: Prompt assets explicitly encode read-before-write, one-concept-per-write, preserve-frontmatter, preserve-headings, preserve-citations, and no-invented-citations rules.
 - AC-008: Prompt assets include source attribution/reference to Google `knowledge-catalog/okf` when substantial prompt text is reused.
 - AC-009: `KnowledgeBase.create({ root })` uses MiniSearch by default and existing search tests pass.
 - AC-010: `KnowledgeBase.create({ root, search })` accepts a custom search adapter and routes indexing/search through it.
-- AC-011: A BigQuery-style search adapter can return contract-compatible `SearchResult[]` without changing `KnowledgeBase` application logic.
-- AC-012: `query()` returns citations only from the retrieved result paths for both MiniSearch and BigQuery-backed retrieval.
+- AC-011: A BigQuery-style search adapter can return contract-compatible `SearchResult[]` without changing `KnowledgeBase` application logic; when implemented, it must also namespace results per bundle and return only bundle-readable paths for the active bundle.
+- AC-012: `query()` returns citations only from the retrieved result paths for both MiniSearch and BigQuery-backed retrieval, and `QueryAnswer.text` must not retain markdown links or bare bundle-path mentions to non-retrieved bundle documents or unverified external URLs.
 - AC-013: `query()` without configured LLM provider throws `ConfigurationError`.
 - AC-014: `search`, `validate`, `status`, `listConcepts`, and `export` run without configured LLM provider.
-- AC-015: Guarded enrichment/update attempts that drop existing citations are rejected or reported as failed.
-- AC-016: Guarded enrichment/update attempts that shrink deterministic schema-like frontmatter or protected metadata are rejected or reported as failed.
+- AC-015: Guarded enrichment/update attempts (`guardedUpdate: true`, including automatic guarded updates from `synthesize()` on existing concept paths) that drop existing top-level H1/H2 headings or bundle citations are rejected or reported as failed.
+- AC-016: Guarded enrichment/update attempts that shrink deterministic schema-like fenced body sections (under H1/H2 headings whose text contains `schema`) or protected frontmatter are rejected or reported as failed.
 - AC-017: Repeated `index.md` generation over unchanged input is deterministic.
 - AC-018: SDK smoke workflow create → ingest → search → validate proves the behavior through the public SDK API.
-- AC-019: Packaged SDK E2E proves `npm run build` → `npm pack` → isolated consumer install/import from `@llm-wiki/sdk` → create/open → ingest/write → search → validate → status/list/export, including no-provider `ConfigurationError`.
+- AC-019: Packaged SDK E2E proves `npm run build` → `npm pack` → isolated consumer install/import from `@llm-wiki/sdk` → `KnowledgeBase.create/open` → ingest → `writeConcept` → search → validate → status/list/export → `query()` without provider throws `ConfigurationError`.
 
 - AC-020: The spec distinguishes repo-level patterns from OKF-specific implementation details, so implementing agents do not treat Google Cloud service workflows as default SDK behavior.
 - AC-021: Any future discovery decomposition/rerank feature is tested without Dataplex/ADK dependencies and preserves retrieval-bound citation filtering.
@@ -201,7 +201,7 @@
 - Broken internal markdown link: tolerate during parse; validation may warn or fail according to local policy.
 - LLM provider missing: deterministic methods work; LLM methods throw `ConfigurationError`.
 - Provider returns non-retrieved citation: SDK filters it out.
-- Existing enrichment drops citation/schema/frontmatter: reject or report failed when guardrail applies.
+- Existing enrichment drops citation/schema/frontmatter/headings: reject or report failed when guarded update applies (`guardedUpdate: true` or `synthesize()` updating an existing concept path).
 - BigQuery credentials missing: fail clearly; no silent fallback.
 - BigQuery index missing: `exists()` returns false or raises clear setup error according to adapter contract.
 - BigQuery returns path missing from local bundle: `query()` must not cite it unless the active bundle can read it.
@@ -364,6 +364,8 @@ Local `llm-wiki` context already requires:
   - `sdk/src/domain/types.ts`
   - `sdk/src/domain/errors.ts`
   - `sdk/src/application/knowledge-base.ts`
+  - `sdk/src/application/okf-write-guards.ts`
+  - `sdk/src/application/okf-prompts.ts`
   - `sdk/src/infrastructure/local-search.ts`
   - `sdk/src/infrastructure/filesystem.ts`
   - Markdown/frontmatter parser modules under `sdk/src/infrastructure/`
@@ -414,17 +416,17 @@ Local `llm-wiki` context already requires:
 
 - VAL-001: Unknown OKF type is accepted and preserved. Evidence: focused validation/frontmatter test.
 - VAL-002: Unknown frontmatter keys round-trip unchanged. Evidence: parse → write/export → parse test.
-- VAL-003: Multi-file ingest reports malformed file through `ChangeSet.failed` while valid files succeed. Evidence: public SDK ingest test.
+- VAL-003: Multi-file ingest reports malformed file through `ChangeSet.failed` while valid files succeed. Evidence: public SDK `ingestMany()` test.
 - VAL-004: Required prompt assets exist and are reviewable. Evidence: local files for metadata enrichment and web/source augmentation are present and include the required constraints.
 - VAL-005: Prompt assets are adapted to local terminology and cite the Google OKF source when substantial text is reused. Evidence: focused review or snapshot test of prompt files.
 - VAL-006: Default MiniSearch remains unchanged. Evidence: existing search tests pass.
 - VAL-007: Custom `SearchAdapter` injection remains supported. Evidence: existing adapter injection test passes.
-- VAL-008: BigQuery-style adapter can satisfy `SearchAdapter`. Evidence: fake client test if adapter is implemented.
-- VAL-009: `query()` citation filtering works with any backend. Evidence: fake provider returns extra citation; SDK filters to retrieved paths.
+- VAL-008: BigQuery-style adapter can satisfy `SearchAdapter` and enforce bundle namespace/readability when implemented. Evidence: fake client test covering cross-bundle path rejection and bundle-readable paths.
+- VAL-009: `query()` citation filtering works with any backend. Evidence: fake provider returns extra citation metadata and fabricated markdown/external links in answer text; SDK filters `QueryAnswer.citations` and `QueryAnswer.text` to retrieved bundle-local paths.
 - VAL-010: Deterministic methods work without LLM provider. Evidence: create → ingest → search → validate/status/list/export test.
 - VAL-011: LLM-dependent methods without provider throw `ConfigurationError`. Evidence: focused `query()` test.
-- VAL-012: Guarded enrichment/update attempts that drop citations or shrink protected frontmatter/metadata are rejected or reported failed. Evidence: write/update guard test.
-- VAL-013: Full relevant gates pass after implementation. Evidence: `just typecheck`, `just test`, `just lint`.
+- VAL-012: Guarded enrichment/update attempts that drop citations, top-level H1/H2 headings, or shrink protected schema-like fenced sections/frontmatter are rejected or reported failed. Evidence: write/update guard tests and `synthesize()` guarded-update tests.
+- VAL-013: Full relevant gates pass after implementation. Evidence: `just typecheck`, `just test`, and scoped ESLint on changed SDK files (full-repo `just lint` remains a separate hygiene track).
 - VAL-014: Repository-level distillation remains explicit in the PRD. Evidence: requirements mention `samples/discovery`, `samples/enrichment`, `toolbox/mdcode`, and `toolbox/enrichment`.
 - VAL-015: Future discovery/rerank work preserves citation filtering. Evidence: fake multi-search/rerank test when implemented.
 - VAL-016: Future metadata-as-code CLI/MCP work proves local diff review before sync. Evidence: CLI/MCP integration test when implemented.
@@ -436,14 +438,13 @@ Local `llm-wiki` context already requires:
 - Risk: Too-strict validation could reject valid OKF extensions. Mitigation: keep type/frontmatter open; hard-fail only local invariants.
 - Risk: BigQuery dependency increases SDK weight. Mitigation: decide core optional adapter vs separate package before implementation.
 - Risk: BigQuery latency/cost surprises in Agent replies. Mitigation: keep MiniSearch default and require explicit opt-in.
-- Open question: Exact durable location for prompt assets, e.g. `sdk/src/application/prompts/`, `sdk/src/infrastructure/prompts/`, or `docs/prompts/`, should be decided when implementation starts based on whether SDK code imports them.
 - Open question: Should BigQuery adapter live in core SDK or separate `@llm-wiki/bigquery-search` package?
-- Open question: Should enrichment write guards be public APIs or internal helpers?
+- Open question: Should enrichment write guards remain opt-in via `guardedUpdate` for direct `writeConcept()` calls while `synthesize()` keeps automatic guarded updates on existing paths?
 
 ## Readiness
 
-Readiness: Ready
+Readiness: PRD Ready / Implementation Partial
 
-Reason: This PRD covers the broader Google `knowledge-catalog` repo, including `okf/`, `samples/discovery`, `samples/enrichment`, `toolbox/mdcode`, and `toolbox/enrichment`. It records the local reference checkout at `../knowledge-catalog` (`d44368c`), explicitly includes extraction/adaptation of the two Google OKF prompt assets, names where they affect `llm-wiki`, and defines verification.
+Reason: Core in-scope SDK behavior for OKF openness, prompt assets, guarded writes, batch ingest, citation filtering, deterministic/LLM boundaries, and packaged E2E is implemented and tested. Deferred items remain AC-011 (BigQuery adapter), AC-021–AC-023 (future discovery/CLI flows), and FR-007 progressive disclosure beyond deterministic `index.md`.
 
-Next: If implementation begins, use `../knowledge-catalog` as a read-only reference, first extract/adapt the two Google prompt assets into durable local prompt files, then audit current parser/search/query behavior against AC-001 through AC-022 and patch only the gaps.
+Next: Keep PRD AC/VAL aligned with shipped SDK contracts; implement BigQuery adapter with bundle namespace/readability tests when prioritized; treat future discovery/CLI items as separate missions.

@@ -258,14 +258,49 @@ function parseMarkdownLinkDestination(raw) {
 }
 export function extractBundleCitations(text) {
     const citations = [];
-    const citationPattern = /\b(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md\b/g;
-    for (const match of text.matchAll(citationPattern)) {
-        const citation = match[0];
-        if (isBundleCitation(citation) && !citations.includes(citation)) {
-            citations.push(citation);
+    for (const mention of extractBundleCitationMentions(text)) {
+        if (!citations.includes(mention.path)) {
+            citations.push(mention.path);
         }
     }
     return citations;
+}
+const BUNDLE_CITATION_MENTION_PATTERN = /(?:(?:\.\.\/)+|\.\/|\/|\b)((?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md)\b/g;
+export function extractBundleCitationMentions(text) {
+    const mentions = [];
+    for (const match of text.matchAll(BUNDLE_CITATION_MENTION_PATTERN)) {
+        const path = match[1] ?? "";
+        const raw = match[0];
+        if (!isBundleCitation(path)) {
+            continue;
+        }
+        if (!mentions.some((mention) => mention.raw === raw && mention.path === path)) {
+            mentions.push({ path, raw });
+        }
+    }
+    return mentions;
+}
+export function normalizeBundleCitationPath(target) {
+    const withoutFragment = target.split("#", 1)[0] ?? "";
+    if (withoutFragment === "") {
+        return undefined;
+    }
+    if (isBundleCitation(withoutFragment)) {
+        return withoutFragment;
+    }
+    const rootRelative = /^\/((?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md)$/.exec(withoutFragment);
+    if (rootRelative?.[1] !== undefined) {
+        return rootRelative[1];
+    }
+    const parentRelative = /^(?:\.\.\/)+((?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md)$/.exec(withoutFragment);
+    if (parentRelative?.[1] !== undefined) {
+        return parentRelative[1];
+    }
+    const dotRelative = /^\.\/((?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md)$/.exec(withoutFragment);
+    if (dotRelative?.[1] !== undefined) {
+        return dotRelative[1];
+    }
+    return undefined;
 }
 export function isExternalLink(target) {
     return target.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(target);
