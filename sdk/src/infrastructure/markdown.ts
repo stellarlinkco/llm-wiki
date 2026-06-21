@@ -79,7 +79,7 @@ function stripYamlComment(value: string): string {
   let quote: '"' | "'" | undefined;
   let escaped = false;
   for (let index = 0; index < value.length; index += 1) {
-    const char = value[index];
+    const char = value.charAt(index);
     if (escaped) {
       escaped = false;
       continue;
@@ -88,21 +88,29 @@ function stripYamlComment(value: string): string {
       escaped = true;
       continue;
     }
+    quote = updateYamlQuote(quote, char);
     if (quote !== undefined) {
-      if (char === quote) {
-        quote = undefined;
-      }
       continue;
     }
-    if (char === '"' || char === "'") {
-      quote = char;
-      continue;
-    }
-    if (char === "#" && (index === 0 || /\s/.test(value[index - 1] ?? ""))) {
+    if (char === "#" && isYamlCommentStart(value, index)) {
       return value.slice(0, index).trimEnd();
     }
   }
   return value;
+}
+
+function updateYamlQuote(quote: '"' | "'" | undefined, char: string): '"' | "'" | undefined {
+  if (quote !== undefined) {
+    return char === quote ? undefined : quote;
+  }
+  if (char === '"' || char === "'") {
+    return char;
+  }
+  return undefined;
+}
+
+function isYamlCommentStart(value: string, index: number): boolean {
+  return index === 0 || /\s/.test(value[index - 1] ?? "");
 }
 
 function splitYamlInlineList(inner: string): string[] {
@@ -121,16 +129,10 @@ function splitYamlInlineList(inner: string): string[] {
       escaped = true;
       continue;
     }
-    if (quote !== undefined) {
-      current += char;
-      if (char === quote) {
-        quote = undefined;
-      }
-      continue;
-    }
-    if (char === '"' || char === "'") {
-      current += char;
-      quote = char;
+    const quoted = appendYamlListChar(char, quote, current);
+    current = quoted.current;
+    quote = quoted.quote;
+    if (quoted.handled) {
       continue;
     }
     if (char === ",") {
@@ -147,6 +149,21 @@ function splitYamlInlineList(inner: string): string[] {
     values.push(unquote(current.trim()));
   }
   return values;
+}
+
+function appendYamlListChar(
+  char: string,
+  quote: '"' | "'" | undefined,
+  current: string,
+): { current: string; quote: '"' | "'" | undefined; handled: boolean } {
+  if (quote !== undefined) {
+    const nextQuote = char === quote ? undefined : quote;
+    return { current: current + char, quote: nextQuote, handled: true };
+  }
+  if (char === '"' || char === "'") {
+    return { current: current + char, quote: char, handled: true };
+  }
+  return { current, quote, handled: false };
 }
 
 function unquote(value: string): string {
@@ -196,10 +213,13 @@ export function toOkfFrontmatter(frontmatter: Record<string, unknown>): OkfFront
       result[key] = value;
     }
   }
-  if (Array.isArray(result.tags)) {
-    result.tags = result.tags.map(String);
-  } else if (result.tags !== undefined) {
-    result.tags = [String(result.tags)];
+  const rawTags = frontmatter.tags;
+  if (Array.isArray(rawTags)) {
+    result.tags = rawTags.map(String);
+  } else if (typeof rawTags === "string") {
+    result.tags = [rawTags];
+  } else if (typeof rawTags === "number" || typeof rawTags === "boolean") {
+    result.tags = [String(rawTags)];
   }
   return result;
 }
@@ -208,7 +228,7 @@ export function validateReservedFile(parsed: ParsedMarkdown, path: string, error
   if (!parsed.hasFrontmatter) {
     return;
   }
-  const allowed = path === "index.md" ? new Set(["okf_version"]) : new Set<string>();
+  const allowed = basename(path) === "index.md" ? new Set(["okf_version"]) : new Set<string>();
   for (const key of Object.keys(parsed.frontmatter)) {
     if (!allowed.has(key)) {
       errors.push({
@@ -336,7 +356,7 @@ export function isBundleCitation(citation: string): boolean {
 }
 
 export function extractTitle(content: string, path: string): string {
-  const heading = content.match(/^#\s*(.*)$/m)?.[1]?.trim();
+  const heading = /^#\s*(.*)$/m.exec(content)?.[1]?.trim();
   return heading === undefined || heading === "" ? titleFromPath(path) : heading;
 }
 

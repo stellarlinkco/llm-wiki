@@ -11,13 +11,13 @@ export class TextSourceParser {
         }
         return input.kind === "text" || TEXT_EXTENSIONS[extension(input)] === true;
     }
-    async parse(input) {
+    parse(input) {
         const content = normalizeSourceBody(input.content).trim();
         if (content === "") {
-            throw new ParserError("EMPTY_SOURCE", "Plain text source did not contain meaningful text.", sourceContext(input));
+            return Promise.reject(new ParserError("EMPTY_SOURCE", "Plain text source did not contain meaningful text.", sourceContext(input)));
         }
         const fence = content.includes("```") ? "````" : "```";
         const body = `${fence}text\n${content}\n${fence}`;
-        return parsedMarkdown(input, this.name, sourceName(input), body, firstPlainLine(content));
+        return Promise.resolve(parsedMarkdown(input, this.name, sourceName(input), body, firstPlainLine(content)));
     }
 }

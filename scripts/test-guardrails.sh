@@ -69,6 +69,15 @@ else
   skip "commit-msg guard" "no commitlint config found"
 fi
 
+# 5. CI layer4 — file/complexity audit must target src/, not test files.
+echo -n "  CI file size audit scopes to src ... "
+if grep -q "eslint src" "$repo_root/.github/workflows/ci.yml"; then
+  echo "PASS"; pass=$((pass + 1))
+else
+  echo "FAIL (expected 'eslint src' in ci.yml layer4 audit)"
+  fail=$((fail + 1))
+fi
+
 echo
 echo "guardrail self-test: $pass passed, $fail failed"
 [ "$fail" -eq 0 ]

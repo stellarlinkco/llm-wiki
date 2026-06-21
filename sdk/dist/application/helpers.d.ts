@@ -15,7 +15,7 @@ export declare function frontmatterMetadata(metadata: Record<string, unknown> | 
 export declare function changeFailure(path: string, error: unknown): {
     path: string;
     error: string;
-    code: import("../domain/errors.js").ParserErrorCode;
+    code: "UNSUPPORTED_SOURCE" | "PARSE_FAILED" | "EMPTY_SOURCE" | "FETCH_FAILED" | "PDF_TEXT_LAYER_MISSING";
     source: {
         contentType?: string;
         url?: string;

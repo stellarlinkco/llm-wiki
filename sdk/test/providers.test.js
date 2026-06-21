@@ -180,6 +180,8 @@ test("query strips non-retrieved bundle citations and external links from answer
           "Relative [missing](../concepts/not-retrieved.md) and [ok](../sources/architecture.md).",
           "External [fake](https://fake.example/doc) and autolink <https://fake.example/autolink>.",
           "Bare concepts/not-retrieved.md and ./concepts/not-retrieved.md mention.",
+          'HTML <a href="concepts/not-retrieved.md">missing</a> and <a href="sources/architecture.md">ok</a>.',
+          'External <a href="https://fake.example/html">fake</a>.',
         ].join(" "),
         citations: [],
       };
@@ -196,6 +198,8 @@ test("query strips non-retrieved bundle citations and external links from answer
   assert.doesNotMatch(answer.text, /concepts\/not-retrieved\.md/);
   assert.doesNotMatch(answer.text, /\.\/concepts\/not-retrieved\.md/);
   assert.doesNotMatch(answer.text, /https:\/\/fake\.example/);
+  assert.match(answer.text, /<a href="sources\/architecture\.md">ok<\/a>/);
+  assert.doesNotMatch(answer.text, /<a[^>]+concepts\/not-retrieved\.md/);
   assert.match(answer.text, /\bmissing\b/);
   assert.match(answer.text, /\bfake\b/);
 });

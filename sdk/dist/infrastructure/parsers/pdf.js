@@ -2,8 +2,8 @@ import { ParserError } from "../../domain/errors.js";
 import { extension, hasKnownMediaType, mediaType, parsedMarkdown, sourceContext, sourceName } from "./shared.js";
 const defaultPdfParserFactory = async (data) => {
     // pdf-parse initializes optional native canvas polyfills at module load; defer it to PDF parsing so root SDK imports work without optional parser-native packages.
-    const { PDFParse } = await import("pdf-parse");
-    return new PDFParse({ data: binaryBuffer(data) });
+    const pdfParseModule = await import("pdf-parse");
+    return new pdfParseModule.PDFParse({ data: binaryBuffer(data) });
 };
 let pdfParserFactory = defaultPdfParserFactory;
 export function setPdfParserFactoryForTesting(factory) {

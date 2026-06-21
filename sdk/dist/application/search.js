@@ -3,7 +3,7 @@ export function tokenize(content) {
     if (matches === null) {
         return [];
     }
-    return matches.flatMap((match) => isHanRun(match) ? hanNgrams(match) : [match]);
+    return matches.flatMap((match) => (isHanRun(match) ? hanNgrams(match) : [match]));
 }
 function isHanRun(value) {
     return /^\p{Script=Han}+$/u.test(value);
@@ -22,7 +22,10 @@ function hanNgrams(value) {
     return tokens;
 }
 export function extractSnippet(content, queryTokens) {
-    const plain = content.replace(/---[\s\S]*?---/, "").replace(/\s+/g, " ").trim();
+    const plain = content
+        .replace(/---[\s\S]*?---/, "")
+        .replace(/\s+/g, " ")
+        .trim();
     const lower = plain.toLowerCase();
     let start = 0;
     for (const token of queryTokens) {

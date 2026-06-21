@@ -43,6 +43,7 @@ import {
 } from "../infrastructure/markdown.js";
 import { collectGuardedUpdateFailures, mergeWriteConceptFrontmatter } from "./okf-write-guards.js";
 import { filterQueryAnswerText } from "./query-answer.js";
+import { buildProgressiveIndexFiles } from "./index-catalog.js";
 import { tokenize } from "./search.js";
 import {
   boundedSlug,
@@ -219,27 +220,23 @@ export class KnowledgeBase {
   async writeIndex(options: WriteIndexOptions): Promise<ChangeSet> {
     const changeSet = emptyChangeSet("writeIndex");
     const docs = await this.readConcepts();
-    const sourceDocs = docs.filter((doc) => doc.frontmatter.type === "Source Document");
-    const conceptDocs = docs.filter((doc) => doc.frontmatter.type !== "Source Document");
-    const body = [
-      `# ${options.title}`,
-      "",
-      ...(options.description === undefined ? [] : [options.description, ""]),
-      "## Sources",
-      "",
-      ...sourceDocs.map(
-        (doc) => `- [${doc.frontmatter.title ?? titleFromPath(doc.path)}](${doc.path}) — ${doc.frontmatter.type}`,
-      ),
-      "",
-      "## Concepts",
-      "",
-      ...conceptDocs.map(
-        (doc) => `- [${doc.frontmatter.title ?? titleFromPath(doc.path)}](${doc.path}) — ${doc.frontmatter.type}`,
-      ),
-    ].join("\n");
-    await this.store.write("index.md", `---\nokf_version: "0.1"\n---\n\n${body.trimEnd()}\n`);
-    changeSet.updated.push("index.md");
-    await this.appendLog("writeIndex", ["Updated: index.md"]);
+    const entries = docs.map((doc) => ({
+      path: doc.path,
+      title:
+        typeof doc.frontmatter.title === "string" && doc.frontmatter.title.trim() !== ""
+          ? doc.frontmatter.title
+          : titleFromPath(doc.path),
+      type: doc.frontmatter.type,
+    }));
+    const indexFiles = buildProgressiveIndexFiles(entries, options);
+    for (const [path, content] of [...indexFiles.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+      await this.store.write(path, content);
+      changeSet.updated.push(path);
+    }
+    await this.appendLog(
+      "writeIndex",
+      changeSet.updated.map((path) => `Updated: ${path}`),
+    );
     return changeSet;
   }
 

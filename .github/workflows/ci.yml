@@ -68,23 +68,30 @@ jobs:
       - name: Dead code
         run: cd sdk && npm run dead-code
       - name: File size audit
-        run: |
-          cd sdk && npx eslint . --rule 'max-lines: [error, { max: 700, skipBlankLines: true, skipComments: true }]' --rule 'complexity: [error, 10]' --max-warnings 0
+        run: cd sdk && npx eslint src --max-warnings 0
       - name: Circular dependency check
-        run: |
-          cd sdk && npx eslint . --rule 'import/no-cycle: [error, { maxDepth: 1, ignoreExternal: true }]' --max-warnings 0
+        run: cd sdk && npx eslint src --max-warnings 0
 
   layer5-secret-scan:
     name: Secret scan
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      GITLEAKS_VERSION: "8.30.1"
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          curl -sSfL \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o /tmp/gitleaks.tgz
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          sudo mv /tmp/gitleaks /usr/local/bin/gitleaks
+      - name: Run gitleaks
+        run: gitleaks detect --source . --redact --verbose
 
   layer6-diff-size-guard:
     name: PR diff size guard

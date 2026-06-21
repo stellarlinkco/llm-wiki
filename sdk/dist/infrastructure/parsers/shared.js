@@ -6,39 +6,45 @@ export async function resolveParserInput(input) {
     if (typeof input === "string") {
         return fileInput(input, {});
     }
-    if (input.kind === "file") {
-        return fileInput(input.path, input.metadata ?? {}, input.contentType, input.title);
+    switch (input.kind) {
+        case "file":
+            return fileInput(input.path, input.metadata ?? {}, input.contentType, input.title);
+        case "text":
+            return textInput(input);
+        case "buffer":
+            return bufferInput(input);
+        case "url": {
+            const { fetchUrlInput } = await import("./url.js");
+            return await fetchUrlInput(input);
+        }
+        default:
+            throw new ParserError("UNSUPPORTED_SOURCE", "Unsupported source input.", {});
     }
-    if (input.kind === "text") {
-        const bytes = Buffer.from(input.text, "utf8");
-        return {
-            kind: "text",
-            content: input.text,
-            bytes,
-            ...(input.contentType === undefined ? {} : { contentType: input.contentType }),
-            ...(input.title === undefined ? {} : { title: input.title }),
-            metadata: input.metadata ?? {},
-        };
-    }
-    if (input.kind === "buffer") {
-        const contentType = mediaTypeFromRaw(input.contentType);
-        const sourcePath = input.path;
-        const bytes = byteView(input.buffer);
-        return {
-            kind: "buffer",
-            content: needsTextContent(contentType, sourcePath) ? textContent(bytes) : "",
-            bytes,
-            ...(sourcePath === undefined ? {} : { path: sourcePath }),
-            ...(input.contentType === undefined ? {} : { contentType: input.contentType }),
-            ...(input.title === undefined ? {} : { title: input.title }),
-            metadata: input.metadata ?? {},
-        };
-    }
-    if (input.kind === "url") {
-        const { fetchUrlInput } = await import("./url.js");
-        return await fetchUrlInput(input);
-    }
-    throw new ParserError("UNSUPPORTED_SOURCE", "Unsupported source input.", {});
+}
+function textInput(input) {
+    const bytes = Buffer.from(input.text, "utf8");
+    return {
+        kind: "text",
+        content: input.text,
+        bytes,
+        ...(input.contentType === undefined ? {} : { contentType: input.contentType }),
+        ...(input.title === undefined ? {} : { title: input.title }),
+        metadata: input.metadata ?? {},
+    };
+}
+function bufferInput(input) {
+    const contentType = mediaTypeFromRaw(input.contentType);
+    const sourcePath = input.path;
+    const bytes = byteView(input.buffer);
+    return {
+        kind: "buffer",
+        content: needsTextContent(contentType, sourcePath) ? textContent(bytes) : "",
+        bytes,
+        ...(sourcePath === undefined ? {} : { path: sourcePath }),
+        ...(input.contentType === undefined ? {} : { contentType: input.contentType }),
+        ...(input.title === undefined ? {} : { title: input.title }),
+        metadata: input.metadata ?? {},
+    };
 }
 function byteView(bytes) {
     return Buffer.isBuffer(bytes) ? bytes : new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -57,22 +63,27 @@ export function extension(input) {
 export function mediaType(input) {
     return input.contentType?.split(";", 1)[0]?.trim().toLowerCase();
 }
+const KNOWN_MEDIA_TYPES = new Set([
+    "text/markdown",
+    "text/plain",
+    "application/json",
+    "text/html",
+    "application/xhtml+xml",
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "image/png",
+    "image/jpeg",
+    "audio/mpeg",
+    "video/mp4",
+]);
 export function hasKnownMediaType(contentType) {
-    return (contentType === "text/markdown" ||
-        contentType === "text/plain" ||
-        contentType === "application/json" ||
-        contentType?.endsWith("+json") === true ||
-        contentType === "text/html" ||
-        contentType === "application/xhtml+xml" ||
-        contentType === "application/pdf" ||
-        contentType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
-        contentType === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
-        contentType === "image/png" ||
-        contentType === "image/jpeg" ||
-        contentType === "audio/mpeg" ||
-        contentType === "video/mp4");
+    if (contentType === undefined) {
+        return false;
+    }
+    return KNOWN_MEDIA_TYPES.has(contentType) || contentType.endsWith("+json");
 }
-export function parserMetadata(input, parser) {
+function parserMetadata(input, parser) {
     return {
         ...input.metadata,
         parser,
@@ -114,17 +125,36 @@ async function fileInput(path, metadata, contentType, title) {
         metadata,
     };
 }
+const TEXT_CONTENT_MEDIA_TYPES = new Set([
+    "text/markdown",
+    "text/plain",
+    "application/json",
+    "application/xml",
+    "text/xml",
+    "text/html",
+    "application/xhtml+xml",
+]);
+const TEXT_CONTENT_EXTENSIONS = new Set([
+    ".md",
+    ".markdown",
+    ".mdx",
+    ".txt",
+    ".text",
+    ".log",
+    ".csv",
+    ".tsv",
+    ".json",
+    ".xml",
+    ".html",
+    ".htm",
+]);
 export function needsTextContent(contentType, sourcePath) {
-    return (contentType === "text/markdown" ||
-        contentType === "text/plain" ||
-        contentType === "application/json" ||
-        contentType?.endsWith("+json") === true ||
-        contentType === "application/xml" ||
-        contentType === "text/xml" ||
-        contentType?.endsWith("+xml") === true ||
-        contentType === "text/html" ||
-        contentType === "application/xhtml+xml" ||
-        [".md", ".markdown", ".mdx", ".txt", ".text", ".log", ".csv", ".tsv", ".json", ".xml", ".html", ".htm"].includes(extensionFromPath(sourcePath)));
+    if (contentType !== undefined) {
+        if (TEXT_CONTENT_MEDIA_TYPES.has(contentType) || contentType.endsWith("+json") || contentType.endsWith("+xml")) {
+            return true;
+        }
+    }
+    return TEXT_CONTENT_EXTENSIONS.has(extensionFromPath(sourcePath));
 }
 export function mediaTypeFromRaw(contentType) {
     return contentType?.split(";", 1)[0]?.trim().toLowerCase();

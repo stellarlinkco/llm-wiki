@@ -4,10 +4,19 @@ import { mkdtemp, readFile, writeFile, readdir, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { AnthropicProvider, KnowledgeBase, ConfigurationError, DefaultSourceParser, OpenAIProvider, ParserError } from "../dist/index.js";
+import {
+  AnthropicProvider,
+  KnowledgeBase,
+  ConfigurationError,
+  DefaultSourceParser,
+  OpenAIProvider,
+  ParserError,
+} from "../dist/index.js";
 import { setUrlHostResolverForTesting, setUrlRequesterForTesting } from "../dist/infrastructure/parsers/url.js";
 
-setUrlHostResolverForTesting(async (hostname) => hostname === "metadata.attacker.example" ? ["169.254.169.254"] : ["93.184.216.34"]);
+setUrlHostResolverForTesting(async (hostname) =>
+  hostname === "metadata.attacker.example" ? ["169.254.169.254"] : ["93.184.216.34"],
+);
 
 export async function tempRoot() {
   return await mkdtemp(join(tmpdir(), "llm-wiki-sdk-"));
@@ -44,7 +53,6 @@ export async function withUrlRequester(routes, run) {
     restore();
   }
 }
-
 
 export function pdfFixture(text) {
   const escaped = text.replaceAll("\\\\", "\\\\\\\\").replaceAll("(", "\\\\(").replaceAll(")", "\\\\)");
@@ -129,54 +137,78 @@ function zipFixture(entries) {
 
 export function docxFixture() {
   return zipFixture([
-    ["[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    [
+      "[Content_Types].xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-</Types>`],
-    ["_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+</Types>`,
+    ],
+    [
+      "_rels/.rels",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
-</Relationships>`],
-    ["word/document.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+</Relationships>`,
+    ],
+    [
+      "word/document.xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
     <w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:r><w:t>Operations Handbook</w:t></w:r></w:p>
     <w:p><w:r><w:t>DOCX content says cobalt renewal owners coordinate launch readiness.</w:t></w:r></w:p>
   </w:body>
-</w:document>`],
+</w:document>`,
+    ],
   ]);
 }
 
 export function pptxFixture() {
   return zipFixture([
-    ["[Content_Types].xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+    [
+      "[Content_Types].xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
   <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>
   <Override PartName="/ppt/slides/slide1.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
   <Override PartName="/ppt/slides/slide2.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>
-</Types>`],
-    ["_rels/.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+</Types>`,
+    ],
+    [
+      "_rels/.rels",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
-</Relationships>`],
-    ["ppt/presentation.xml", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+</Relationships>`,
+    ],
+    [
+      "ppt/presentation.xml",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <p:sldIdLst>
     <p:sldId id="256" r:id="rId1"/>
     <p:sldId id="257" r:id="rId2"/>
   </p:sldIdLst>
-</p:presentation>`],
-    ["ppt/_rels/presentation.xml.rels", `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+</p:presentation>`,
+    ],
+    [
+      "ppt/_rels/presentation.xml.rels",
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
   <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/>
   <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide2.xml"/>
-</Relationships>`],
+</Relationships>`,
+    ],
     ["ppt/slides/slide1.xml", slideXml(["Quarterly Roadmap", "PPTX slide one says helios onboarding starts in July."])],
-    ["ppt/slides/slide2.xml", slideXml(["Customer Enablement", "PPTX slide two says iris renewal training is searchable."])],
+    [
+      "ppt/slides/slide2.xml",
+      slideXml(["Customer Enablement", "PPTX slide two says iris renewal training is searchable."]),
+    ],
   ]);
 }
 

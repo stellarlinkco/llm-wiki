@@ -30,30 +30,34 @@ export function conceptsFromSynthesis(value) {
     if (!isRecord(payload) || !Array.isArray(payload.concepts)) {
         throw new ConfigurationError("Synthesis response must include a concepts array.");
     }
-    return payload.concepts.map((item) => {
-        if (!isRecord(item) ||
-            typeof item.path !== "string" ||
-            typeof item.title !== "string" ||
-            typeof item.body !== "string") {
-            throw new ConfigurationError("Each synthesized concept requires path, title, and body.");
-        }
-        const concept = {
-            path: item.path,
-            title: item.title,
-            body: item.body,
-        };
-        if (typeof item.description === "string")
-            concept.description = item.description;
-        if (Array.isArray(item.tags))
-            concept.tags = item.tags.map(String);
-        if (Array.isArray(item.sourcePaths))
-            concept.sourcePaths = item.sourcePaths.map(String);
-        if (typeof item.type === "string" && item.type.trim() !== "")
-            concept.type = item.type.trim();
-        if (isRecord(item.frontmatter))
-            concept.frontmatter = item.frontmatter;
-        return concept;
-    });
+    return payload.concepts.map((item) => toWriteConceptOptions(item));
+}
+function toWriteConceptOptions(item) {
+    validateConceptItem(item);
+    const concept = {
+        path: item.path,
+        title: item.title,
+        body: item.body,
+    };
+    if (typeof item.description === "string")
+        concept.description = item.description;
+    if (Array.isArray(item.tags))
+        concept.tags = item.tags.map(String);
+    if (Array.isArray(item.sourcePaths))
+        concept.sourcePaths = item.sourcePaths.map(String);
+    if (typeof item.type === "string" && item.type.trim() !== "")
+        concept.type = item.type.trim();
+    if (isRecord(item.frontmatter))
+        concept.frontmatter = item.frontmatter;
+    return concept;
+}
+function validateConceptItem(item) {
+    if (!isRecord(item) ||
+        typeof item.path !== "string" ||
+        typeof item.title !== "string" ||
+        typeof item.body !== "string") {
+        throw new ConfigurationError("Each synthesized concept requires path, title, and body.");
+    }
 }
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);

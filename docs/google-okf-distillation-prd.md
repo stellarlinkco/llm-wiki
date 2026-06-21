@@ -81,7 +81,7 @@
 ### Bundle and index behavior
 
 - FR-006: `index.md` generation, when exposed or modified, must be deterministic and derived from existing document metadata.
-- FR-007: Index files should support progressive disclosure: list nearby documents/subdirectories without requiring the whole bundle to be loaded into context.
+- FR-007: Index files support progressive disclosure: root and subdirectory `index.md` files list nearby documents/subdirectories without requiring the whole bundle to be loaded into context.
 - FR-008: Repeated index generation over the same bundle state should produce stable output.
 
 ### LLM enrichment safety
@@ -178,7 +178,7 @@
 - AC-009: `KnowledgeBase.create({ root })` uses MiniSearch by default and existing search tests pass.
 - AC-010: `KnowledgeBase.create({ root, search })` accepts a custom search adapter and routes indexing/search through it.
 - AC-011: A BigQuery-style search adapter can return contract-compatible `SearchResult[]` without changing `KnowledgeBase` application logic; when implemented, it must also namespace results per bundle and return only bundle-readable paths for the active bundle.
-- AC-012: `query()` returns citations only from the retrieved result paths for both MiniSearch and BigQuery-backed retrieval, and `QueryAnswer.text` must not retain markdown links or bare bundle-path mentions to non-retrieved bundle documents or unverified external URLs.
+- AC-012: `query()` returns citations only from the retrieved result paths for both MiniSearch and BigQuery-backed retrieval, and `QueryAnswer.text` must not retain markdown links, HTML hrefs, or bare bundle-path mentions to non-retrieved bundle documents or unverified external URLs.
 - AC-013: `query()` without configured LLM provider throws `ConfigurationError`.
 - AC-014: `search`, `validate`, `status`, `listConcepts`, and `export` run without configured LLM provider.
 - AC-015: Guarded enrichment/update attempts (`guardedUpdate: true`, including automatic guarded updates from `synthesize()` on existing concept paths) that drop existing top-level H1/H2 headings or bundle citations are rejected or reported as failed.
@@ -364,12 +364,13 @@ Local `llm-wiki` context already requires:
   - `sdk/src/domain/types.ts`
   - `sdk/src/domain/errors.ts`
   - `sdk/src/application/knowledge-base.ts`
+  - `sdk/src/application/index-catalog.ts`
+  - `sdk/src/application/query-answer.ts`
   - `sdk/src/application/okf-write-guards.ts`
   - `sdk/src/application/okf-prompts.ts`
   - `sdk/src/infrastructure/local-search.ts`
+  - `sdk/src/infrastructure/bigquery-search.ts`
   - `sdk/src/infrastructure/filesystem.ts`
-  - Markdown/frontmatter parser modules under `sdk/src/infrastructure/`
-  - possible future `sdk/src/infrastructure/bigquery-search.ts`
   - local prompt asset files for metadata enrichment and web/source augmentation
 - Data / schema:
   - OKF Markdown files
@@ -389,7 +390,8 @@ Local `llm-wiki` context already requires:
   - validation tests
   - provider/citation tests
   - prompt asset review/snapshot tests if prompts become imported SDK artifacts
-  - optional fake-client BigQuery adapter tests
+  - `sdk/test/bigquery-search.test.js`
+  - `sdk/test/index-catalog.test.js`
 - Docs / ops:
   - local reference checkout `../knowledge-catalog` for research-only comparison
   - source attribution/reference for Google OKF prompts if substantial text is reused
@@ -422,7 +424,7 @@ Local `llm-wiki` context already requires:
 - VAL-006: Default MiniSearch remains unchanged. Evidence: existing search tests pass.
 - VAL-007: Custom `SearchAdapter` injection remains supported. Evidence: existing adapter injection test passes.
 - VAL-008: BigQuery-style adapter can satisfy `SearchAdapter` and enforce bundle namespace/readability when implemented. Evidence: fake client test covering cross-bundle path rejection and bundle-readable paths.
-- VAL-009: `query()` citation filtering works with any backend. Evidence: fake provider returns extra citation metadata and fabricated markdown/external links in answer text; SDK filters `QueryAnswer.citations` and `QueryAnswer.text` to retrieved bundle-local paths.
+- VAL-009: `query()` citation filtering works with any backend. Evidence: fake provider returns extra citation metadata and fabricated markdown/HTML/external links in answer text; SDK filters `QueryAnswer.citations` and `QueryAnswer.text` to retrieved bundle-local paths.
 - VAL-010: Deterministic methods work without LLM provider. Evidence: create → ingest → search → validate/status/list/export test.
 - VAL-011: LLM-dependent methods without provider throw `ConfigurationError`. Evidence: focused `query()` test.
 - VAL-012: Guarded enrichment/update attempts that drop citations, top-level H1/H2 headings, or shrink protected schema-like fenced sections/frontmatter are rejected or reported failed. Evidence: write/update guard tests and `synthesize()` guarded-update tests.
@@ -443,8 +445,8 @@ Local `llm-wiki` context already requires:
 
 ## Readiness
 
-Readiness: PRD Ready / Implementation Partial
+Readiness: PRD Ready / Implementation Complete (Core SDK)
 
-Reason: Core in-scope SDK behavior for OKF openness, prompt assets, guarded writes, batch ingest, citation filtering, deterministic/LLM boundaries, and packaged E2E is implemented and tested. Deferred items remain AC-011 (BigQuery adapter), AC-021–AC-023 (future discovery/CLI flows), and FR-007 progressive disclosure beyond deterministic `index.md`.
+Reason: Core in-scope SDK behavior for OKF openness, prompt assets, guarded writes, batch ingest, citation filtering (including answer text/HTML), BigQuery optional adapter with bundle namespace tests, progressive disclosure indexes, deterministic/LLM boundaries, and packaged E2E is implemented and tested. Deferred items remain AC-021–AC-023 (future discovery/CLI flows) and FR-015 structured enrichment routing beyond prompt guidance.
 
-Next: Keep PRD AC/VAL aligned with shipped SDK contracts; implement BigQuery adapter with bundle namespace/readability tests when prioritized; treat future discovery/CLI items as separate missions.
+Next: Treat future discovery/CLI items as separate missions; optionally split `@llm-wiki/bigquery-search` if the injectable client wrapper should ship separately from core SDK exports.

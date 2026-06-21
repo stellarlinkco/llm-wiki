@@ -43,23 +43,35 @@ export async function fetchUrlInput(input: Extract<ParserSourceInput, { kind: "u
   const publicUrl = sanitizeUrl(url);
   const addresses = await publicAddresses(url, publicUrl);
   const response = await readStaticUrl(new URL(url), addresses[0], publicUrl);
+  validateFetchResponse(response, publicUrl);
+  return buildUrlInput(input, url, publicUrl, response);
+}
 
+function validateFetchResponse(response: StaticUrlResponse, publicUrl: string): void {
   if (response.status >= 300 && response.status < 400) {
     throw new ParserError("FETCH_FAILED", "URL redirects are not followed by the default static fetcher.", {
       url: publicUrl,
     });
   }
   if (response.status < 200 || response.status >= 300) {
-    throw new ParserError("FETCH_FAILED", `URL fetch failed with HTTP ${response.status}.`, { url: publicUrl });
+    throw new ParserError("FETCH_FAILED", `URL fetch failed with HTTP ${String(response.status)}.`, { url: publicUrl });
   }
-
-  const contentType = response.headers.get("content-type") ?? input.contentType ?? undefined;
+  const contentType = response.headers.get("content-type") ?? undefined;
   if (response.body.length > MAX_URL_BYTES) {
-    throw new ParserError("PARSE_FAILED", `URL response exceeds ${MAX_URL_BYTES} bytes.`, {
+    throw new ParserError("PARSE_FAILED", `URL response exceeds ${String(MAX_URL_BYTES)} bytes.`, {
       url: publicUrl,
       ...(contentType === undefined ? {} : { contentType }),
     });
   }
+}
+
+function buildUrlInput(
+  input: Extract<ParserSourceInput, { kind: "url" }>,
+  url: string,
+  publicUrl: string,
+  response: StaticUrlResponse,
+): ResolvedParserInput {
+  const contentType = response.headers.get("content-type") ?? input.contentType ?? undefined;
   const media = mediaTypeFromRaw(contentType);
   return {
     kind: "url",
@@ -132,7 +144,6 @@ async function readStaticUrl(url: URL, address: string, publicUrl: string): Prom
 async function requestWithValidatedAddress(url: URL, address: string, publicUrl: string): Promise<StaticUrlResponse> {
   const request = url.protocol === "https:" ? httpsRequest : httpRequest;
   return await new Promise<StaticUrlResponse>((resolve, reject) => {
-    let deadline: ReturnType<typeof setTimeout>;
     const req = request(
       {
         protocol: url.protocol,
@@ -143,7 +154,7 @@ async function requestWithValidatedAddress(url: URL, address: string, publicUrl:
         headers: { "user-agent": "@llm-wiki/sdk", accept: "*/*" },
         lookup: (_hostname, options, callback) => {
           const family = isIP(address) as 4 | 6;
-          if (typeof options === "object" && options !== null && "all" in options && options.all === true) {
+          if (typeof options === "object" && "all" in options && options.all === true) {
             callback(null, [{ address, family }] as never, family);
             return;
           }
@@ -151,6 +162,13 @@ async function requestWithValidatedAddress(url: URL, address: string, publicUrl:
         },
       },
       (response) => {
+        const deadline = setTimeout(() => {
+          req.destroy(
+            new ParserError("FETCH_FAILED", `URL fetch timed out after ${String(URL_TIMEOUT_MS)} ms.`, {
+              url: publicUrl,
+            }),
+          );
+        }, URL_TIMEOUT_MS);
         const finish = <T>(fn: (value: T) => void, value: T): void => {
           clearTimeout(deadline);
           fn(value);
@@ -161,7 +179,7 @@ async function requestWithValidatedAddress(url: URL, address: string, publicUrl:
           response.destroy();
           finish(
             reject,
-            new ParserError("PARSE_FAILED", `URL response exceeds ${MAX_URL_BYTES} bytes.`, {
+            new ParserError("PARSE_FAILED", `URL response exceeds ${String(MAX_URL_BYTES)} bytes.`, {
               url: publicUrl,
               ...contentTypeSource(response),
             }),
@@ -174,7 +192,7 @@ async function requestWithValidatedAddress(url: URL, address: string, publicUrl:
           size += chunk.length;
           if (size > MAX_URL_BYTES) {
             response.destroy(
-              new ParserError("PARSE_FAILED", `URL response exceeds ${MAX_URL_BYTES} bytes.`, {
+              new ParserError("PARSE_FAILED", `URL response exceeds ${String(MAX_URL_BYTES)} bytes.`, {
                 url: publicUrl,
                 ...contentTypeSource(response),
               }),
@@ -183,7 +201,9 @@ async function requestWithValidatedAddress(url: URL, address: string, publicUrl:
           }
           chunks.push(chunk);
         });
-        response.on("error", (error) => finish(reject, error));
+        response.on("error", (error) => {
+          finish(reject, error);
+        });
         response.on("end", () => {
           finish(resolve, {
             status,
@@ -193,16 +213,12 @@ async function requestWithValidatedAddress(url: URL, address: string, publicUrl:
         });
       },
     );
-    deadline = setTimeout(() => {
-      req.destroy(
-        new ParserError("FETCH_FAILED", `URL fetch timed out after ${URL_TIMEOUT_MS} ms.`, { url: publicUrl }),
-      );
-    }, URL_TIMEOUT_MS);
     req.setTimeout(URL_TIMEOUT_MS, () => {
-      req.destroy(new ParserError("FETCH_FAILED", `URL fetch was idle for ${URL_TIMEOUT_MS} ms.`, { url: publicUrl }));
+      req.destroy(
+        new ParserError("FETCH_FAILED", `URL fetch was idle for ${String(URL_TIMEOUT_MS)} ms.`, { url: publicUrl }),
+      );
     });
     req.on("error", (error) => {
-      clearTimeout(deadline);
       reject(
         error instanceof ParserError
           ? error
@@ -235,7 +251,7 @@ function decodeText(bytes: Uint8Array, contentType: string | undefined): string 
       .replace(/^["']|["']$/g, "") ?? "utf-8";
   try {
     return new TextDecoder(charset).decode(bytes);
-  } catch (error) {
+  } catch {
     throw new ParserError("PARSE_FAILED", `Unsupported response charset: ${charset}.`);
   }
 }
@@ -253,22 +269,34 @@ function ipv4MappedAddress(address: string): string | null {
   if (address.startsWith("::ffff:")) {
     return ipv4MappedSuffix(address.slice("::ffff:".length));
   }
+  return ipv4MappedFromHextets(address.split(":"));
+}
 
-  const hextets = address.split(":");
-  if (hextets.length === 7 && hextets.slice(0, 5).every(isZeroHextet) && hextets[5]?.toLowerCase() === "ffff") {
+function ipv4MappedFromHextets(hextets: string[]): string | null {
+  if (!isIpv4MappedPrefix(hextets)) {
+    return null;
+  }
+  if (hextets.length === 7) {
     return ipv4MappedSuffix(hextets[6] ?? "");
   }
-  if (hextets.length === 8 && hextets.slice(0, 5).every(isZeroHextet) && hextets[5]?.toLowerCase() === "ffff") {
-    return ipv4MappedSuffix(`${hextets[6]}:${hextets[7]}`);
+  if (hextets.length === 8) {
+    return ipv4MappedSuffix(`${hextets[6] ?? ""}:${hextets[7] ?? ""}`);
   }
   return null;
+}
+
+function isIpv4MappedPrefix(hextets: string[]): boolean {
+  return hextets.slice(0, 5).every(isZeroHextet) && hextets[5]?.toLowerCase() === "ffff";
 }
 
 function ipv4MappedSuffix(suffix: string): string | null {
   if (isIP(suffix) === 4) {
     return suffix;
   }
-  const hextets = suffix.split(":");
+  return ipv4FromHextetPair(suffix.split(":"));
+}
+
+function ipv4FromHextetPair(hextets: string[]): string | null {
   if (hextets.length !== 2) {
     return null;
   }
@@ -277,7 +305,7 @@ function ipv4MappedSuffix(suffix: string): string | null {
   if (!Number.isInteger(high) || !Number.isInteger(low) || high < 0 || high > 0xffff || low < 0 || low > 0xffff) {
     return null;
   }
-  return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
+  return `${String(high >> 8)}.${String(high & 0xff)}.${String(low >> 8)}.${String(low & 0xff)}`;
 }
 
 function isZeroHextet(value: string): boolean {
@@ -295,13 +323,10 @@ function normalizeHostname(hostname: string): string {
 
 function isPublicHostname(hostname: string): boolean {
   const normalized = normalizeHostname(hostname);
-  if (normalized === "" || normalized.includes("[") || normalized.includes("]")) {
+  if (!isValidHostnameShape(normalized)) {
     return false;
   }
-  if (normalized === "localhost" || normalized.endsWith(".localhost")) {
-    return false;
-  }
-  if (normalized.endsWith(".local")) {
+  if (isLocalHostname(normalized)) {
     return false;
   }
   const mapped = ipv4MappedAddress(normalized);
@@ -310,40 +335,58 @@ function isPublicHostname(hostname: string): boolean {
   }
   const ipVersion = isIP(normalized);
   if (ipVersion === 4) {
-    const parts = normalized.split(".").map((part) => Number.parseInt(part, 10));
-    const [a, b, c, d] = parts;
-    return (
-      parts.length === 4 &&
-      parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255) &&
-      !(
-        a === 0 ||
-        a === 10 ||
-        a === 127 ||
-        (a === 100 && b !== undefined && b >= 64 && b <= 127) ||
-        (a === 169 && b === 254) ||
-        (a === 172 && b !== undefined && b >= 16 && b <= 31) ||
-        (a === 192 && b === 0 && c === 0) ||
-        (a === 192 && b === 0 && c === 2) ||
-        (a === 192 && b === 88 && c === 99) ||
-        (a === 192 && b === 168) ||
-        (a === 198 && b !== undefined && b >= 18 && b <= 19) ||
-        (a === 198 && b === 51 && c === 100) ||
-        (a === 203 && b === 0 && c === 113) ||
-        (a !== undefined && a >= 224) ||
-        (a === 255 && b === 255 && c === 255 && d === 255)
-      )
-    );
+    return isPublicIpv4(normalized);
   }
   if (ipVersion === 6) {
-    const firstHextet = Number.parseInt(normalized.split(":")[0] ?? "", 16);
-    return !(
-      normalized === "::1" ||
-      normalized === "::" ||
-      normalized.startsWith("fc") ||
-      normalized.startsWith("fd") ||
-      normalized.startsWith("ff") ||
-      (firstHextet >= 0xfe80 && firstHextet <= 0xfebf)
-    );
+    return isPublicIpv6(normalized);
   }
   return true;
+}
+
+function isValidHostnameShape(hostname: string): boolean {
+  return hostname !== "" && !hostname.includes("[") && !hostname.includes("]");
+}
+
+function isLocalHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname.endsWith(".localhost") || hostname.endsWith(".local");
+}
+
+function isPublicIpv4(address: string): boolean {
+  const parts = address.split(".").map((part) => Number.parseInt(part, 10));
+  if (parts.length !== 4 || !parts.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)) {
+    return false;
+  }
+  const [a, b, c, d] = parts as [number, number, number, number];
+  return !isPrivateIpv4(a, b, c, d);
+}
+
+function isPrivateIpv4(a: number, b: number, c: number, d: number): boolean {
+  const parts: [number, number, number, number] = [a, b, c, d];
+  return PRIVATE_IPV4_CHECKS.some((check) => check(parts));
+}
+
+const PRIVATE_IPV4_CHECKS: ((parts: [number, number, number, number]) => boolean)[] = [
+  ([first]) => first === 0 || first === 10 || first === 127,
+  ([first, second]) => first === 100 && second >= 64 && second <= 127,
+  ([first, second]) => first === 169 && second === 254,
+  ([first, second]) => first === 172 && second >= 16 && second <= 31,
+  ([first, second, third]) => first === 192 && second === 0 && (third === 0 || third === 2),
+  ([first, second, third]) => first === 192 && second === 88 && third === 99,
+  ([first, second]) => first === 192 && second === 168,
+  ([first, second, third]) => first === 198 && second === 51 && third === 100,
+  ([first, second]) => first === 198 && second >= 18 && second <= 19,
+  ([first, second, third]) => first === 203 && second === 0 && third === 113,
+  ([first]) => first >= 224,
+  ([first, second, third, fourth]) => first === 255 && second === 255 && third === 255 && fourth === 255,
+];
+
+function isPublicIpv6(address: string): boolean {
+  if (address === "::1" || address === "::") {
+    return false;
+  }
+  if (address.startsWith("fc") || address.startsWith("fd") || address.startsWith("ff")) {
+    return false;
+  }
+  const firstHextet = Number.parseInt(address.split(":")[0] ?? "", 16);
+  return !(firstHextet >= 0xfe80 && firstHextet <= 0xfebf);
 }

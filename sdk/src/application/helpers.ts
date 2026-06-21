@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { basename, extname, resolve } from "node:path";
+import { basename, resolve } from "node:path";
 import type { ChangeSet, ParserSourceInput, WriteConceptOptions } from "../domain/types.js";
 import { ConfigurationError, ParserError, errorMessage } from "../domain/errors.js";
 
@@ -34,27 +34,37 @@ export function conceptsFromSynthesis(value: unknown): WriteConceptOptions[] {
   if (!isRecord(payload) || !Array.isArray(payload.concepts)) {
     throw new ConfigurationError("Synthesis response must include a concepts array.");
   }
-  return payload.concepts.map((item) => {
-    if (
-      !isRecord(item) ||
-      typeof item.path !== "string" ||
-      typeof item.title !== "string" ||
-      typeof item.body !== "string"
-    ) {
-      throw new ConfigurationError("Each synthesized concept requires path, title, and body.");
-    }
-    const concept: WriteConceptOptions = {
-      path: item.path,
-      title: item.title,
-      body: item.body,
-    };
-    if (typeof item.description === "string") concept.description = item.description;
-    if (Array.isArray(item.tags)) concept.tags = item.tags.map(String);
-    if (Array.isArray(item.sourcePaths)) concept.sourcePaths = item.sourcePaths.map(String);
-    if (typeof item.type === "string" && item.type.trim() !== "") concept.type = item.type.trim();
-    if (isRecord(item.frontmatter)) concept.frontmatter = item.frontmatter as Record<string, unknown>;
-    return concept;
-  });
+  return payload.concepts.map((item) => toWriteConceptOptions(item));
+}
+
+function toWriteConceptOptions(item: unknown): WriteConceptOptions {
+  validateConceptItem(item);
+  const concept: WriteConceptOptions = {
+    path: item.path,
+    title: item.title,
+    body: item.body,
+  };
+  if (typeof item.description === "string") concept.description = item.description;
+  if (Array.isArray(item.tags)) concept.tags = item.tags.map(String);
+  if (Array.isArray(item.sourcePaths)) concept.sourcePaths = item.sourcePaths.map(String);
+  if (typeof item.type === "string" && item.type.trim() !== "") concept.type = item.type.trim();
+  if (isRecord(item.frontmatter)) concept.frontmatter = item.frontmatter;
+  return concept;
+}
+
+function validateConceptItem(item: unknown): asserts item is Record<string, unknown> & {
+  path: string;
+  title: string;
+  body: string;
+} {
+  if (
+    !isRecord(item) ||
+    typeof item.path !== "string" ||
+    typeof item.title !== "string" ||
+    typeof item.body !== "string"
+  ) {
+    throw new ConfigurationError("Each synthesized concept requires path, title, and body.");
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

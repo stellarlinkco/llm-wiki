@@ -9,7 +9,7 @@ const miniSearchOptions = {
     searchOptions: {
         boost: { title: 4, tags: 3, content: 1 },
         prefix: true,
-        fuzzy: (term, _index, _terms) => term.length > 4 ? 0.1 : false,
+        fuzzy: (term, _index, _terms) => (term.length > 4 ? 0.1 : false),
     },
 };
 export class LocalSearchAdapter {
@@ -32,7 +32,10 @@ export class LocalSearchAdapter {
         const payload = JSON.parse(raw);
         const documentsByPath = new Map(payload.documents.map((doc) => [doc.path, doc]));
         const miniSearch = MiniSearch.loadJS(payload.miniSearch, miniSearchOptions);
-        const results = miniSearch.search(query).slice(0, options.limit ?? 10).map((result) => {
+        const results = miniSearch
+            .search(query)
+            .slice(0, options.limit ?? 10)
+            .map((result) => {
             const path = String(result.path);
             const doc = documentsByPath.get(path);
             return {

@@ -948,16 +948,22 @@ test("writeIndex creates a bundle entry point listing sources and concepts", asy
   });
 
   assert.deepEqual(changeSet.failed, []);
-  assert.deepEqual(changeSet.updated, ["index.md"]);
+  assert.ok(changeSet.updated.includes("index.md"));
+  assert.ok(changeSet.updated.includes("sources/index.md"));
+  assert.ok(changeSet.updated.includes("concepts/index.md"));
   const indexDoc = await readFile(join(root, "index.md"), "utf8");
   assert.match(indexDoc, /^# Company Knowledge Base$/m);
   assert.match(indexDoc, /Generated bundle entry point/);
-  assert.match(indexDoc, /- \[Company Source\]\(sources\/company\.md\) — Source Document/);
-  assert.match(indexDoc, /- \[Company Overview\]\(concepts\/company-overview\.md\) — Concept/);
+  assert.match(indexDoc, /\[Sources\]\(sources\/index\.md\)/);
+  assert.match(indexDoc, /\[Concepts\]\(concepts\/index\.md\)/);
+  const sourcesIndex = await readFile(join(root, "sources", "index.md"), "utf8");
+  assert.match(sourcesIndex, /- \[Company Source\]\(company\.md\) — Source Document/);
+  const conceptsIndex = await readFile(join(root, "concepts", "index.md"), "utf8");
+  assert.match(conceptsIndex, /- \[Company Overview\]\(company-overview\.md\) — Concept/);
   assert.deepEqual((await kb.validate()).errors, []);
 });
 
-test("writeIndex produces byte-identical index.md on repeated calls with unchanged bundle", async () => {
+test("writeIndex produces byte-identical progressive indexes on repeated calls with unchanged bundle", async () => {
   const root = await tempRoot();
   const sourceRoot = await tempRoot();
   const source = join(sourceRoot, "company.md");
@@ -975,12 +981,23 @@ test("writeIndex produces byte-identical index.md on repeated calls with unchang
     description: "Generated bundle entry point.",
   };
 
-  await kb.writeIndex(options);
-  const firstBytes = await readFile(join(root, "index.md"));
-  await kb.writeIndex(options);
-  const secondBytes = await readFile(join(root, "index.md"));
+  const firstChangeSet = await kb.writeIndex(options);
+  const firstSnapshots = new Map(
+    await Promise.all(
+      firstChangeSet.updated.map(async (path) => [path, await readFile(join(root, ...path.split("/")))]),
+    ),
+  );
+  const secondChangeSet = await kb.writeIndex(options);
+  const secondSnapshots = new Map(
+    await Promise.all(
+      secondChangeSet.updated.map(async (path) => [path, await readFile(join(root, ...path.split("/")))]),
+    ),
+  );
 
-  assert.deepEqual(firstBytes, secondBytes);
+  assert.deepEqual([...firstSnapshots.keys()].sort(), [...secondSnapshots.keys()].sort());
+  for (const path of firstSnapshots.keys()) {
+    assert.deepEqual(firstSnapshots.get(path), secondSnapshots.get(path), path);
+  }
 });
 
 test("status reports source documents separately from concept documents", async () => {

@@ -77,7 +77,7 @@ function stripYamlComment(value) {
     let quote;
     let escaped = false;
     for (let index = 0; index < value.length; index += 1) {
-        const char = value[index];
+        const char = value.charAt(index);
         if (escaped) {
             escaped = false;
             continue;
@@ -86,21 +86,27 @@ function stripYamlComment(value) {
             escaped = true;
             continue;
         }
+        quote = updateYamlQuote(quote, char);
         if (quote !== undefined) {
-            if (char === quote) {
-                quote = undefined;
-            }
             continue;
         }
-        if (char === "\"" || char === "'") {
-            quote = char;
-            continue;
-        }
-        if (char === "#" && (index === 0 || /\s/.test(value[index - 1] ?? ""))) {
+        if (char === "#" && isYamlCommentStart(value, index)) {
             return value.slice(0, index).trimEnd();
         }
     }
     return value;
+}
+function updateYamlQuote(quote, char) {
+    if (quote !== undefined) {
+        return char === quote ? undefined : quote;
+    }
+    if (char === '"' || char === "'") {
+        return char;
+    }
+    return undefined;
+}
+function isYamlCommentStart(value, index) {
+    return index === 0 || /\s/.test(value[index - 1] ?? "");
 }
 function splitYamlInlineList(inner) {
     const values = [];
@@ -118,16 +124,10 @@ function splitYamlInlineList(inner) {
             escaped = true;
             continue;
         }
-        if (quote !== undefined) {
-            current += char;
-            if (char === quote) {
-                quote = undefined;
-            }
-            continue;
-        }
-        if (char === "\"" || char === "'") {
-            current += char;
-            quote = char;
+        const quoted = appendYamlListChar(char, quote, current);
+        current = quoted.current;
+        quote = quoted.quote;
+        if (quoted.handled) {
             continue;
         }
         if (char === ",") {
@@ -144,6 +144,16 @@ function splitYamlInlineList(inner) {
         values.push(unquote(current.trim()));
     }
     return values;
+}
+function appendYamlListChar(char, quote, current) {
+    if (quote !== undefined) {
+        const nextQuote = char === quote ? undefined : quote;
+        return { current: current + char, quote: nextQuote, handled: true };
+    }
+    if (char === '"' || char === "'") {
+        return { current: current + char, quote: char, handled: true };
+    }
+    return { current, quote, handled: false };
 }
 function unquote(value) {
     if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
@@ -169,11 +179,11 @@ function serializeYamlValue(value) {
     return yamlScalar(String(value));
 }
 function yamlScalar(value) {
-    if (value === ""
-        || /[:{}[\]"'\n\r#&*!|>,]/.test(value)
-        || /^\d{4}-\d{2}-\d{2}T/.test(value)
-        || /^[-?:](?:\s|$)/.test(value)
-        || /^(?:true|false|null|~)$/i.test(value)) {
+    if (value === "" ||
+        /[:{}[\]"'\n\r#&*!|>,]/.test(value) ||
+        /^\d{4}-\d{2}-\d{2}T/.test(value) ||
+        /^[-?:](?:\s|$)/.test(value) ||
+        /^(?:true|false|null|~)$/i.test(value)) {
         return `"${value.replace(/\\/g, "\\\\").replace(/\r\n?/g, "\n").replace(/\n/g, "\\n").replace(/"/g, '\\"')}"`;
     }
     return value;
@@ -186,11 +196,15 @@ export function toOkfFrontmatter(frontmatter) {
             result[key] = value;
         }
     }
-    if (Array.isArray(result.tags)) {
-        result.tags = result.tags.map(String);
+    const rawTags = frontmatter.tags;
+    if (Array.isArray(rawTags)) {
+        result.tags = rawTags.map(String);
     }
-    else if (result.tags !== undefined) {
-        result.tags = [String(result.tags)];
+    else if (typeof rawTags === "string") {
+        result.tags = [rawTags];
+    }
+    else if (typeof rawTags === "number" || typeof rawTags === "boolean") {
+        result.tags = [String(rawTags)];
     }
     return result;
 }
@@ -198,10 +212,14 @@ export function validateReservedFile(parsed, path, errors) {
     if (!parsed.hasFrontmatter) {
         return;
     }
-    const allowed = path === "index.md" ? new Set(["okf_version"]) : new Set();
+    const allowed = basename(path) === "index.md" ? new Set(["okf_version"]) : new Set();
     for (const key of Object.keys(parsed.frontmatter)) {
         if (!allowed.has(key)) {
-            errors.push({ path, code: "reserved_frontmatter", message: `Reserved file contains unsupported frontmatter field: ${key}` });
+            errors.push({
+                path,
+                code: "reserved_frontmatter",
+                message: `Reserved file contains unsupported frontmatter field: ${key}`,
+            });
         }
     }
 }
@@ -306,14 +324,16 @@ export function isExternalLink(target) {
     return target.startsWith("//") || /^[a-z][a-z0-9+.-]*:/i.test(target);
 }
 export function isBundleCitation(citation) {
-    return /^(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(citation) && !citation.split("/").includes("..");
+    return (/^(?:sources|concepts|references)\/[A-Za-z0-9._~/%+-]+\.md$/.test(citation) && !citation.split("/").includes(".."));
 }
 export function extractTitle(content, path) {
-    const heading = content.match(/^#\s*(.*)$/m)?.[1]?.trim();
+    const heading = /^#\s*(.*)$/m.exec(content)?.[1]?.trim();
     return heading === undefined || heading === "" ? titleFromPath(path) : heading;
 }
 export function titleFromPath(path) {
-    return basename(path, extname(path)).replace(/[-_]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+    return basename(path, extname(path))
+        .replace(/[-_]+/g, " ")
+        .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 export function firstPlainLine(content) {
     for (const rawLine of content.split(/\r?\n/)) {
@@ -329,5 +349,8 @@ export function normalizeSourceBody(content) {
     return content.replace(/\r\n?/g, "\n");
 }
 function stripMarkdown(line) {
-    return line.replace(/\[([^\]]+)]\([^)]+\)/g, "$1").replace(/[*_`]/g, "").trim();
+    return line
+        .replace(/\[([^\]]+)]\([^)]+\)/g, "$1")
+        .replace(/[*_`]/g, "")
+        .trim();
 }

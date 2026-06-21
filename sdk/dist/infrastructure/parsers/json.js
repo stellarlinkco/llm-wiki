@@ -9,11 +9,11 @@ export class JsonSourceParser {
         }
         return extension(input) === ".json";
     }
-    async parse(input) {
+    parse(input) {
         try {
             const parsed = JSON.parse(input.content);
             const formatted = JSON.stringify(parsed, null, 2);
-            return parsedMarkdown(input, this.name, sourceName(input), `\`\`\`json\n${formatted}\n\`\`\``);
+            return Promise.resolve(parsedMarkdown(input, this.name, sourceName(input), `\`\`\`json\n${formatted}\n\`\`\``));
         }
         catch (error) {
             if (error instanceof ParserError) {

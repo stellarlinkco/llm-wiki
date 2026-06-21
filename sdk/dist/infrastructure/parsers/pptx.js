@@ -5,7 +5,7 @@ import * as PptxParserModule from "node-pptx-parser";
 import { ParserError } from "../../domain/errors.js";
 import { extension, hasKnownMediaType, mediaType, parsedMarkdown, sourceContext, sourceName } from "./shared.js";
 const PPTX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-const PptxParser = (PptxParserModule.default ?? PptxParserModule);
+const pptxParserCtor = PptxParserModule.default;
 export class PptxSourceParser {
     name = "pptx";
     supports(input) {
@@ -24,13 +24,11 @@ export class PptxSourceParser {
                 sourcePath = join(tempDir, "source.pptx");
                 await writeFile(sourcePath, input.bytes);
             }
-            const parser = new PptxParser(sourcePath);
+            const parser = new pptxParserCtor(sourcePath);
             const slides = await parser.extractText();
             const sections = slides.flatMap((slide, index) => {
-                const lines = slide.text
-                    .map((line) => line.trim())
-                    .filter((line) => line !== "");
-                return lines.length === 0 ? [] : [`## Slide ${index + 1}`, ...lines];
+                const lines = slide.text.map((line) => line.trim()).filter((line) => line !== "");
+                return lines.length === 0 ? [] : [`## Slide ${String(index + 1)}`, ...lines];
             });
             return parsedMarkdown(input, this.name, sourceName(input), sections.join("\n\n"));
         }

@@ -4,8 +4,8 @@ export declare class ConfigurationError extends Error {
 export declare class ValidationError extends Error {
     constructor(message: string);
 }
-export type ParserErrorCode = "UNSUPPORTED_SOURCE" | "PARSE_FAILED" | "EMPTY_SOURCE" | "FETCH_FAILED" | "PDF_TEXT_LAYER_MISSING";
-export interface ParserErrorSource {
+type ParserErrorCode = "UNSUPPORTED_SOURCE" | "PARSE_FAILED" | "EMPTY_SOURCE" | "FETCH_FAILED" | "PDF_TEXT_LAYER_MISSING";
+interface ParserErrorSource {
     path?: string;
     url?: string;
     contentType?: string;
@@ -16,3 +16,4 @@ export declare class ParserError extends Error {
     constructor(code: ParserErrorCode, message: string, source?: ParserErrorSource);
 }
 export declare function errorMessage(error: unknown): string;
+export {};

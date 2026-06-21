@@ -1,6 +1,7 @@
 import { extractBundleCitationMentions, isExternalLink, normalizeBundleCitationPath, } from "../infrastructure/markdown.js";
 export function filterQueryAnswerText(text, retrievedPaths) {
     let filtered = stripDisallowedQueryMarkdownLinks(text, retrievedPaths);
+    filtered = stripDisallowedQueryHtmlLinks(filtered, retrievedPaths);
     filtered = stripDisallowedQueryAutolinks(filtered, retrievedPaths);
     for (const mention of extractBundleCitationMentions(filtered)) {
         if (!retrievedPaths.has(mention.path)) {
@@ -8,6 +9,12 @@ export function filterQueryAnswerText(text, retrievedPaths) {
         }
     }
     return filtered;
+}
+function stripDisallowedQueryHtmlLinks(text, retrievedPaths) {
+    return text.replace(/<a\b[^>]*\bhref\s*=\s*(["'])([^"']*)\1[^>]*>([\s\S]*?)<\/a>/gi, (match, quote, href, label) => {
+        void quote;
+        return shouldStripQueryMarkdownLink(href.trim(), retrievedPaths) ? label : match;
+    });
 }
 function stripDisallowedQueryMarkdownLinks(text, retrievedPaths) {
     let result = "";

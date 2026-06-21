@@ -45,6 +45,15 @@ if (writeConceptResult.failed.length !== 0) {
   process.exit(1);
 }
 
+const indexChangeSet = await kb.writeIndex({
+  title: "Pack Consumer Knowledge Base",
+  description: "Progressive disclosure indexes for packaged SDK verification.",
+});
+if (indexChangeSet.failed.length !== 0) {
+  console.error("writeIndex failed", indexChangeSet.failed);
+  process.exit(1);
+}
+
 const searchResults = await kb.search("alpha launch checklist", { limit: 3 });
 if (searchResults.length === 0) {
   console.error("search returned no hits");
@@ -97,6 +106,7 @@ console.log(
     bundleRoot,
     exportRoot,
     ingestCreated: ingest.created.length,
+    indexUpdated: indexChangeSet.updated.length,
     searchHits: searchResults.length,
     validationValid: validation.valid,
     status,

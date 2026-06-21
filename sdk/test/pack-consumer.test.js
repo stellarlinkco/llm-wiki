@@ -46,6 +46,7 @@ test("packaged SDK consumer workflow (VAL-PACK-001 / AC-019)", async () => {
     assert.ok(summary.searchHits > 0);
     assert.equal(summary.validationValid, true);
     assert.ok(summary.conceptCount > 0);
+    assert.ok(summary.indexUpdated >= 3);
     assert.equal(summary.queryRejected, true);
   } finally {
     await unlink(tarballPath).catch(() => undefined);
@@ -63,4 +64,7 @@ test("create-knowledge-base smoke workflow (VAL-SMOKE-001 / AC-018)", async () =
   assert.ok(summary.search.length > 0);
   assert.equal(summary.validation.valid, true);
   assert.equal(summary.sourceDocumentHasDemoPhrase, true);
+  assert.ok(summary.indexUpdated.includes("index.md"));
+  assert.ok(summary.indexUpdated.includes("sources/index.md"));
+  assert.equal(summary.queryRejectedWithoutProvider, true);
 });

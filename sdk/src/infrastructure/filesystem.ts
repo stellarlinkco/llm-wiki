@@ -47,7 +47,11 @@ export async function listMarkdownFiles(root: string): Promise<string[]> {
   return out.sort();
 }
 
-export async function copyBundleFiles(sourceRoot: string, destinationRoot: string, includeCache: boolean): Promise<string[]> {
+export async function copyBundleFiles(
+  sourceRoot: string,
+  destinationRoot: string,
+  includeCache: boolean,
+): Promise<string[]> {
   const copied: string[] = [];
   async function visit(sourceDir: string, destinationDir: string): Promise<void> {
     await ensureDir(destinationDir);

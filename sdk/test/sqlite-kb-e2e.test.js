@@ -7,10 +7,7 @@ import { readFile, mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Database from "better-sqlite3";
-import {
-  KnowledgeBase,
-  SqliteBundleStore,
-} from "../dist/index.js";
+import { KnowledgeBase, SqliteBundleStore } from "../dist/index.js";
 
 function fakeProvider(responses) {
   return {
@@ -70,9 +67,7 @@ test("SqliteBundleStore + KnowledgeBase E2E", async (t) => {
     const hits = await kb.search("GEO");
     assert.ok(hits.length > 0);
 
-    const hitWithGeo = hits.find((h) =>
-      h.snippet.includes("GEO") || h.title.includes("星纬"),
-    );
+    const hitWithGeo = hits.find((h) => h.snippet.includes("GEO") || h.title.includes("星纬"));
     assert.ok(hitWithGeo);
   });
 
@@ -122,10 +117,11 @@ test("SqliteBundleStore + KnowledgeBase E2E", async (t) => {
 
     const indexContent = await store.read("index.md");
     assert.ok(indexContent.includes("StellarLink GEO 知识库"));
-    assert.ok(indexContent.includes("Sources"));
-    assert.ok(indexContent.includes("Concepts"));
-    assert.ok(indexContent.includes("concepts/brand-profile.md"));
-    assert.ok(indexContent.includes("concepts/case-manufacturing.md"));
+    assert.ok(indexContent.includes("[Sources](sources/index.md)"));
+    assert.ok(indexContent.includes("[Concepts](concepts/index.md)"));
+    const conceptsIndex = await store.read("concepts/index.md");
+    assert.ok(conceptsIndex.includes("brand-profile.md"));
+    assert.ok(conceptsIndex.includes("case-manufacturing.md"));
   });
 
   await t.test("validate passes for well-formed bundle", async () => {
@@ -148,10 +144,7 @@ test("SqliteBundleStore + KnowledgeBase E2E", async (t) => {
     });
 
     // Write a doc without type in frontmatter
-    await store.write(
-      "concepts/no-type.md",
-      "---\ntitle: Missing Type\n---\n\nBody without type.\n",
-    );
+    await store.write("concepts/no-type.md", "---\ntitle: Missing Type\n---\n\nBody without type.\n");
 
     const validation = await kb.validate();
     const missing = validation.errors.find((e) => e.code === "missing_type");

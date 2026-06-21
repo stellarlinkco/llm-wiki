@@ -12,6 +12,7 @@ interface InlineMarkdownLink {
 
 export function filterQueryAnswerText(text: string, retrievedPaths: Set<string>): string {
   let filtered = stripDisallowedQueryMarkdownLinks(text, retrievedPaths);
+  filtered = stripDisallowedQueryHtmlLinks(filtered, retrievedPaths);
   filtered = stripDisallowedQueryAutolinks(filtered, retrievedPaths);
   for (const mention of extractBundleCitationMentions(filtered)) {
     if (!retrievedPaths.has(mention.path)) {
@@ -19,6 +20,16 @@ export function filterQueryAnswerText(text: string, retrievedPaths: Set<string>)
     }
   }
   return filtered;
+}
+
+function stripDisallowedQueryHtmlLinks(text: string, retrievedPaths: Set<string>): string {
+  return text.replace(
+    /<a\b[^>]*\bhref\s*=\s*(["'])([^"']*)\1[^>]*>([\s\S]*?)<\/a>/gi,
+    (match, quote: string, href: string, label: string) => {
+      void quote;
+      return shouldStripQueryMarkdownLink(href.trim(), retrievedPaths) ? label : match;
+    },
+  );
 }
 
 function stripDisallowedQueryMarkdownLinks(text: string, retrievedPaths: Set<string>): string {

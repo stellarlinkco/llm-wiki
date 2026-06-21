@@ -10,8 +10,8 @@ export class MarkdownSourceParser {
         const ext = extension(input);
         return ext === ".md" || ext === ".markdown" || ext === ".mdx";
     }
-    async parse(input) {
+    parse(input) {
         const title = input.title ?? extractTitle(input.content, input.path ?? sourceName(input));
-        return parsedMarkdown(input, this.name, title, input.content);
+        return Promise.resolve(parsedMarkdown(input, this.name, title, input.content));
     }
 }
