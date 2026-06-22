@@ -1,8 +1,9 @@
 import { extractBundleCitationMentions, isExternalLink, normalizeBundleCitationPath, } from "../infrastructure/markdown.js";
+const BARE_EXTERNAL_URL_PATTERN = /(^|[\s([{:])((?:[a-z][a-z0-9+.-]*:\/\/|\/\/)[^\s<>"'`)\]}]+)/gi;
 export function filterQueryAnswerText(text, retrievedPaths) {
     let filtered = stripDisallowedQueryMarkdownLinks(text, retrievedPaths);
     filtered = stripDisallowedQueryHtmlLinks(filtered, retrievedPaths);
-    filtered = stripDisallowedQueryAutolinks(filtered, retrievedPaths);
+    filtered = stripDisallowedQueryBareExternalUrls(stripDisallowedQueryAutolinks(filtered, retrievedPaths));
     for (const mention of extractBundleCitationMentions(filtered)) {
         if (!retrievedPaths.has(mention.path)) {
             filtered = filtered.replaceAll(mention.raw, "");
@@ -54,6 +55,19 @@ function stripDisallowedQueryAutolinks(text, retrievedPaths) {
         }
         return match;
     });
+}
+function stripDisallowedQueryBareExternalUrls(text) {
+    return text.replace(BARE_EXTERNAL_URL_PATTERN, (_match, prefix, url) => {
+        const trailingPunctuation = externalUrlTrailingPunctuation(url);
+        return `${prefix}${trailingPunctuation}`;
+    });
+}
+function externalUrlTrailingPunctuation(url) {
+    let index = url.length;
+    while (index > 0 && /[.,!?;:]/.test(url.charAt(index - 1))) {
+        index -= 1;
+    }
+    return url.slice(index);
 }
 function parseInlineMarkdownLink(content, linkStart) {
     const mid = content.indexOf("](", linkStart);

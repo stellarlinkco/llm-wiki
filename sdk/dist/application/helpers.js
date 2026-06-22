@@ -142,7 +142,7 @@ export function publicResource(input) {
 export function failurePath(input, identity, resource) {
     return typeof input !== "string" && input.kind === "url" ? resource : identity;
 }
-export function hasUrlScheme(value) {
+function hasUrlScheme(value) {
     return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
 }
 export function sourceCandidateMatches(frontmatter, sourceIdentity, resource) {

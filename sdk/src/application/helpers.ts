@@ -162,7 +162,7 @@ export function failurePath(input: string | ParserSourceInput, identity: string,
   return typeof input !== "string" && input.kind === "url" ? resource : identity;
 }
 
-export function hasUrlScheme(value: string): boolean {
+function hasUrlScheme(value: string): boolean {
   return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
 }
 

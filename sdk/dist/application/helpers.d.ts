@@ -9,7 +9,6 @@ export declare function toParserInput(input: string | ParserSourceInput): string
 export declare function sourceIdentity(input: string | ParserSourceInput): string;
 export declare function publicResource(input: string | ParserSourceInput): string;
 export declare function failurePath(input: string | ParserSourceInput, identity: string, resource: string): string;
-export declare function hasUrlScheme(value: string): boolean;
 export declare function sourceCandidateMatches(frontmatter: Record<string, unknown>, sourceIdentity: string, resource: string): boolean;
 export declare function sourceDocumentUsesUrl(frontmatter: Record<string, unknown>): boolean;
 export declare function internalLinkTarget(relPath: string, target: string): string | undefined;

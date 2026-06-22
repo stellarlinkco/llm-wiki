@@ -2,8 +2,8 @@
 
 用 LLM 构建持续增长的个人知识库。灵感来自 [Andrej Karpathy 的 LLM Wiki 模式](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f)。
 
-
 > OKF (Open Knowledge Format) 是 Google Cloud 发布的开放规范 — [阅读公告](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing)（本地副本：`docs/okf-google-cloud-blog.md`）。
+
 **不是 RAG，是一本会自动生长的书。** 知识编译一次，持续更新，以复利方式积累。
 
 [English](./README.md)
@@ -16,6 +16,7 @@
 ```
 
 `@llm-wiki/sdk` TypeScript SDK 管理知识库的完整生命周期：
+
 - **Ingest** — 源文件解析（URL、文件、Buffer → Markdown + YAML frontmatter）
 - **Search** — 基于 MiniSearch 的全文搜索
 - **Synthesize** — LLM 驱动的概念生成（从检索到的 bundle 上下文中提取）
@@ -84,7 +85,7 @@ await kb.export({ path: "./backup" });
 
 ## 支持的文件格式
 
-- **文档**: PDF, DOCX, PPTX, XLSX
+- **文档**: PDF, DOCX, PPTX
 - **网页**: HTML（通过 jsdom + Readability）
 - **文本**: TXT, CSV, JSON, XML, Markdown
 - **缓冲区**: 内存内容（带显式元数据）
@@ -131,6 +132,7 @@ npm run typecheck # 严格 TypeScript 类型检查
 ```
 
 测试按关注面拆分：
+
 - `test/knowledge-base.test.js` — 核心 KnowledgeBase 工作流
 - `test/source-parsers.test.js` — markdown/text/JSON/HTML/URL 解析
 - `test/document-parsers.test.js` — PDF/DOCX/PPTX 解析器覆盖
