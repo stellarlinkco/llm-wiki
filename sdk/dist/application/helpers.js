@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { basename, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { ConfigurationError, ParserError, errorMessage } from "../domain/errors.js";
 export function emptyChangeSet(operation) {
     return { operation, created: [], updated: [], deleted: [], skipped: [], failed: [], warnings: [] };
@@ -30,30 +30,34 @@ export function conceptsFromSynthesis(value) {
     if (!isRecord(payload) || !Array.isArray(payload.concepts)) {
         throw new ConfigurationError("Synthesis response must include a concepts array.");
     }
-    return payload.concepts.map((item) => {
-        if (!isRecord(item) ||
-            typeof item.path !== "string" ||
-            typeof item.title !== "string" ||
-            typeof item.body !== "string") {
-            throw new ConfigurationError("Each synthesized concept requires path, title, and body.");
-        }
-        const concept = {
-            path: item.path,
-            title: item.title,
-            body: item.body,
-        };
-        if (typeof item.description === "string")
-            concept.description = item.description;
-        if (Array.isArray(item.tags))
-            concept.tags = item.tags.map(String);
-        if (Array.isArray(item.sourcePaths))
-            concept.sourcePaths = item.sourcePaths.map(String);
-        if (typeof item.type === "string" && item.type.trim() !== "")
-            concept.type = item.type.trim();
-        if (isRecord(item.frontmatter))
-            concept.frontmatter = item.frontmatter;
-        return concept;
-    });
+    return payload.concepts.map((item) => toWriteConceptOptions(item));
+}
+function toWriteConceptOptions(item) {
+    validateConceptItem(item);
+    const concept = {
+        path: item.path,
+        title: item.title,
+        body: item.body,
+    };
+    if (typeof item.description === "string")
+        concept.description = item.description;
+    if (Array.isArray(item.tags))
+        concept.tags = item.tags.map(String);
+    if (Array.isArray(item.sourcePaths))
+        concept.sourcePaths = item.sourcePaths.map(String);
+    if (typeof item.type === "string" && item.type.trim() !== "")
+        concept.type = item.type.trim();
+    if (isRecord(item.frontmatter))
+        concept.frontmatter = item.frontmatter;
+    return concept;
+}
+function validateConceptItem(item) {
+    if (!isRecord(item) ||
+        typeof item.path !== "string" ||
+        typeof item.title !== "string" ||
+        typeof item.body !== "string") {
+        throw new ConfigurationError("Each synthesized concept requires path, title, and body.");
+    }
 }
 function isRecord(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -138,8 +142,43 @@ export function publicResource(input) {
 export function failurePath(input, identity, resource) {
     return typeof input !== "string" && input.kind === "url" ? resource : identity;
 }
-export function hasUrlScheme(value) {
+function hasUrlScheme(value) {
     return /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+}
+export function sourceCandidateMatches(frontmatter, sourceIdentity, resource) {
+    return (sourceCandidateMatchesIdentity(frontmatter, sourceIdentity) ||
+        sourceCandidateMatchesUrlResource(frontmatter, resource));
+}
+export function sourceDocumentUsesUrl(frontmatter) {
+    const sourceUrl = typeof frontmatter.resource === "string" ? frontmatter.resource : frontmatter.source_path;
+    return typeof sourceUrl === "string" && hasUrlScheme(sourceUrl);
+}
+export function internalLinkTarget(relPath, target) {
+    const targetWithoutFragment = target.split("#", 1)[0] ?? "";
+    if (targetWithoutFragment === "") {
+        return undefined;
+    }
+    return targetWithoutFragment.startsWith("/")
+        ? targetWithoutFragment.slice(1)
+        : join(dirname(relPath), targetWithoutFragment);
+}
+export function synthesisSystemContent(options, defaultPrompt) {
+    return options.outputSchema === undefined
+        ? (options.systemPrompt ?? defaultPrompt)
+        : `${options.outputSchema}\n\n${options.systemPrompt ?? defaultPrompt}`;
+}
+export function synthesisWriteFrontmatter(existed, concept) {
+    return existed ? { generated_by: "llm-wiki-sdk" } : { ...concept.frontmatter, generated_by: "llm-wiki-sdk" };
+}
+function sourceCandidateMatchesIdentity(frontmatter, sourceIdentity) {
+    return (frontmatter.source_id === sha256(sourceIdentity) ||
+        frontmatter.source_path === sourceIdentity ||
+        frontmatter.resource === sourceIdentity);
+}
+function sourceCandidateMatchesUrlResource(frontmatter, resource) {
+    return (hasUrlScheme(resource) &&
+        frontmatter.source_id === undefined &&
+        (frontmatter.source_path === resource || frontmatter.resource === resource));
 }
 export function sourceBasename(sourcePath) {
     if (!hasUrlScheme(sourcePath)) {

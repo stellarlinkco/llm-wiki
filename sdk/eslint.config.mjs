@@ -21,6 +21,7 @@ export default tseslint.config(
     plugins: { import: importPlugin },
     rules: {
       "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_", varsIgnorePattern: "^_" }],
       "@typescript-eslint/no-unnecessary-type-assertion": "error",
       "@typescript-eslint/consistent-type-imports": ["error", { prefer: "type-imports" }],
       "max-lines": ["error", { max: 700, skipBlankLines: true, skipComments: true }],
@@ -30,6 +31,7 @@ export default tseslint.config(
         { selector: "variableLike", format: ["camelCase", "UPPER_CASE"], filter: { regex: forbiddenVersionSuffix, match: false } },
         { selector: "function", format: ["camelCase"], filter: { regex: forbiddenVersionSuffix, match: false } },
         { selector: "typeLike", format: ["PascalCase"], filter: { regex: forbiddenVersionSuffix, match: false } },
+        { selector: "parameter", modifiers: ["unused"], format: null, leadingUnderscore: "allow" },
       ],
       "import/no-cycle": ["error", { maxDepth: 1, ignoreExternal: true }],
       "import/no-restricted-paths": [
@@ -43,6 +45,12 @@ export default tseslint.config(
       "no-console": "error",
       "no-debugger": "error",
     },
+  },
+  // Examples: Node globals, no type-aware rules
+  {
+    files: ["examples/**/*.mjs"],
+    languageOptions: { globals: { ...globals.node } },
+    rules: { "no-console": "off" },
   },
   // Test files: no type-aware rules
   {

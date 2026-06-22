@@ -19,7 +19,6 @@ export declare function sourceName(input: ResolvedParserInput): string;
 export declare function extension(input: ResolvedParserInput): string;
 export declare function mediaType(input: ResolvedParserInput): string | undefined;
 export declare function hasKnownMediaType(contentType: string | undefined): boolean;
-export declare function parserMetadata(input: ResolvedParserInput, parser: string): Record<string, unknown>;
 export declare function parsedMarkdown(input: ResolvedParserInput, parser: string, title: string, body: string, description?: string, metadata?: Record<string, unknown>): ParsedSource;
 export declare function sourceContext(input: ResolvedParserInput): {
     path?: string;

@@ -38,6 +38,9 @@ typecheck:
 test:
     cd sdk && npm test
 
+pack-e2e:
+    cd sdk && npm run build && node --test test/pack-consumer.test.js
+
 test-coverage:
     cd sdk && npx c8 --reporter=text --reporter=lcov --all --src src node --test test/*.test.js
 

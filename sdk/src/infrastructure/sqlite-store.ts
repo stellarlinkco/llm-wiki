@@ -66,7 +66,7 @@ export class SqliteBundleStore implements BundleStore {
       .get(this.root, bundleRelPath);
     return Promise.resolve(row !== undefined);
   }
-  async read(bundleRelPath: string): Promise<string> {
+  read(bundleRelPath: string): Promise<string> {
     const row = this.db
       .prepare(`SELECT content FROM ${this.table} WHERE bundle_id = ? AND path = ?`)
       .get(this.root, bundleRelPath);
@@ -74,12 +74,12 @@ export class SqliteBundleStore implements BundleStore {
       const err: NodeJS.ErrnoException = Object.assign(new Error(`ENOENT: no such document, read '${bundleRelPath}'`), {
         code: "ENOENT",
       });
-      throw err;
+      return Promise.reject(err);
     }
     if (typeof row === "object" && row !== null && "content" in row) {
-      return String((row as Record<string, unknown>).content);
+      return Promise.resolve(String((row as Record<string, unknown>).content));
     }
-    throw new Error(`Unexpected row shape reading '${bundleRelPath}'`);
+    return Promise.reject(new Error(`Unexpected row shape reading '${bundleRelPath}'`));
   }
   write(bundleRelPath: string, content: string): Promise<void> {
     const now = Date.now();

@@ -1,7 +1,11 @@
 export { ConfigurationError, ParserError, ValidationError } from "./domain/errors.js";
-export type { BundleStore, ChangeFailure, ChangeSet, ChangeWarning, ConceptDocument, CrawlOptions, ExportOptions, IngestOptions, KnowledgeBaseOptions, ListConceptOptions, LLMStructuredOutput, ParsedSource, ParserSourceInput, LLMMessage, LLMProvider, LLMRequest, LLMResponse, OkfFrontmatter, QueryAnswer, QueryOptions, SearchAdapter, SearchOptions, SearchResult, OpenAIProviderOptions, AnthropicProviderOptions, SourceParser, SourceKind, StatusReport, SynthesizeOptions, ValidationFinding, ValidationReport, WriteConceptOptions, WriteIndexOptions, } from "./domain/types.js";
+export type { BundleStore, ChangeFailure, ChangeSet, ChangeWarning, ConceptDocument, CrawlOptions, ExportOptions, IngestManyOptions, IngestOptions, KnowledgeBaseOptions, ListConceptOptions, LLMStructuredOutput, ParsedSource, ParserSourceInput, LLMMessage, LLMProvider, LLMRequest, LLMResponse, OkfFrontmatter, QueryAnswer, QueryOptions, SearchAdapter, SearchOptions, SearchResult, OpenAIProviderOptions, AnthropicProviderOptions, SourceParser, SourceKind, StatusReport, SynthesizeOptions, ValidationFinding, ValidationReport, WriteConceptOptions, WriteIndexOptions, } from "./domain/types.js";
 export { KnowledgeBase } from "./application/knowledge-base.js";
+export { OKF_METADATA_ENRICHMENT_PROMPT, OKF_PROMPT_ASSETS, OKF_WEB_SOURCE_AUGMENTATION_PROMPT, } from "./application/okf-prompts.js";
+export type { OkfPromptAsset } from "./application/okf-prompts.js";
 export { LocalSearchAdapter } from "./infrastructure/local-search.js";
+export { BigQuerySearchAdapter } from "./infrastructure/bigquery-search.js";
+export type { BigQuerySearchAdapterOptions, BigQuerySearchClient, BigQuerySearchRow, } from "./infrastructure/bigquery-search.js";
 export { DefaultSourceParser } from "./infrastructure/source-parser.js";
 export { CompositeSourceParser } from "./infrastructure/parsers/composite.js";
 export { FilesystemBundleStore } from "./infrastructure/filesystem-store.js";

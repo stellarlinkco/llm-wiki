@@ -17,30 +17,35 @@ export class OpenAIProvider implements LLMProvider {
   }
 
   async generate(request: LLMRequest): Promise<LLMResponse> {
+    const wantsJson = request.structuredOutput?.type === "json";
     const response = await this.client.chat.completions.create({
       model: this.model,
-      messages: request.structuredOutput?.type === "json" ? withJsonInstruction(request.messages) : request.messages,
-      ...(request.structuredOutput?.type === "json" ? { response_format: { type: "json_object" as const } } : {}),
+      messages: wantsJson ? withJsonInstruction(request.messages) : request.messages,
+      ...(wantsJson ? { response_format: { type: "json_object" as const } } : {}),
     });
-    const text = response.choices[0]?.message.content;
-    if (typeof text !== "string") {
-      throw new ConfigurationError("OpenAI response did not include choices[0].message.content.");
-    }
-
-    const citations = extractBundleCitations(text);
-    const result: LLMResponse = citations.length === 0 ? { text } : { text, citations };
-    if (request.structuredOutput?.type === "json") {
-      result.json = parseJsonResponse(text, "OpenAI");
-    }
-    if (response.usage !== undefined) {
-      result.usage = {
-        inputTokens: response.usage.prompt_tokens ?? 0,
-        outputTokens: response.usage.completion_tokens ?? 0,
-        totalTokens: response.usage.total_tokens ?? 0,
-      };
-    }
-    return result;
+    return buildOpenAiResponse(response, wantsJson);
   }
+}
+
+function buildOpenAiResponse(response: OpenAI.Chat.Completions.ChatCompletion, wantsJson: boolean): LLMResponse {
+  const text = response.choices[0]?.message.content;
+  if (typeof text !== "string") {
+    throw new ConfigurationError("OpenAI response did not include choices[0].message.content.");
+  }
+
+  const citations = extractBundleCitations(text);
+  const result: LLMResponse = citations.length === 0 ? { text } : { text, citations };
+  if (wantsJson) {
+    result.json = parseJsonResponse(text, "OpenAI");
+  }
+  if (response.usage !== undefined) {
+    result.usage = {
+      inputTokens: response.usage.prompt_tokens,
+      outputTokens: response.usage.completion_tokens,
+      totalTokens: response.usage.total_tokens,
+    };
+  }
+  return result;
 }
 
 function withJsonInstruction(messages: LLMRequest["messages"]): LLMRequest["messages"] {

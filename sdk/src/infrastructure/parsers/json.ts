@@ -14,16 +14,20 @@ export class JsonSourceParser implements FormatParser {
     return extension(input) === ".json";
   }
 
-  async parse(input: ResolvedParserInput): Promise<ParsedSource> {
+  parse(input: ResolvedParserInput): Promise<ParsedSource> {
     try {
       const parsed = JSON.parse(input.content) as unknown;
       const formatted = JSON.stringify(parsed, null, 2);
-      return parsedMarkdown(input, this.name, sourceName(input), `\`\`\`json\n${formatted}\n\`\`\``);
+      return Promise.resolve(parsedMarkdown(input, this.name, sourceName(input), `\`\`\`json\n${formatted}\n\`\`\``));
     } catch (error) {
       if (error instanceof ParserError) {
         throw error;
       }
-      throw new ParserError("PARSE_FAILED", `Invalid JSON source: ${error instanceof Error ? error.message : String(error)}`, sourceContext(input));
+      throw new ParserError(
+        "PARSE_FAILED",
+        `Invalid JSON source: ${error instanceof Error ? error.message : String(error)}`,
+        sourceContext(input),
+      );
     }
   }
 }

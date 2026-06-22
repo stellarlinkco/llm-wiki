@@ -17,7 +17,7 @@ interface PptxParserInstance {
   extractText(): Promise<SlideTextContent[]>;
 }
 
-const PptxParser = (PptxParserModule.default ?? PptxParserModule) as unknown as new (filePath: string) => PptxParserInstance;
+const pptxParserCtor = PptxParserModule.default as unknown as new (filePath: string) => PptxParserInstance;
 
 export class PptxSourceParser implements FormatParser {
   readonly name = "pptx";
@@ -40,20 +40,22 @@ export class PptxSourceParser implements FormatParser {
         await writeFile(sourcePath, input.bytes);
       }
 
-      const parser = new PptxParser(sourcePath);
+      const parser = new pptxParserCtor(sourcePath);
       const slides = await parser.extractText();
       const sections = slides.flatMap((slide, index) => {
-        const lines = slide.text
-          .map((line) => line.trim())
-          .filter((line) => line !== "");
-        return lines.length === 0 ? [] : [`## Slide ${index + 1}`, ...lines];
+        const lines = slide.text.map((line) => line.trim()).filter((line) => line !== "");
+        return lines.length === 0 ? [] : [`## Slide ${String(index + 1)}`, ...lines];
       });
       return parsedMarkdown(input, this.name, sourceName(input), sections.join("\n\n"));
     } catch (error) {
       if (error instanceof ParserError) {
         throw error;
       }
-      throw new ParserError("PARSE_FAILED", `PPTX parsing failed: ${error instanceof Error ? error.message : String(error)}`, sourceContext(input));
+      throw new ParserError(
+        "PARSE_FAILED",
+        `PPTX parsing failed: ${error instanceof Error ? error.message : String(error)}`,
+        sourceContext(input),
+      );
     } finally {
       if (tempDir !== undefined) {
         await rm(tempDir, { force: true, recursive: true });

@@ -1,7 +1,7 @@
 # LLM Wiki
 
-
 > OKF (Open Knowledge Format) is an open specification formalized by Google Cloud — [read the announcement](https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing) (local: `docs/okf-google-cloud-blog.md`).
+
 Build persistent, compounding personal knowledge bases with LLMs. Inspired by [Andrej Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f).
 
 **Not RAG — a living book that grows itself.** Knowledge is compiled once, kept current, and compounds over time.
@@ -16,6 +16,7 @@ Source files ──▶ KnowledgeBase SDK ──▶ OKF bundle (.md + frontmatter
 ```
 
 The `@llm-wiki/sdk` TypeScript SDK manages the full knowledge-base lifecycle:
+
 - **Ingest** — source parsing (URLs, files, buffers → Markdown with YAML frontmatter)
 - **Search** — MiniSearch-based full-text search over bundle content
 - **Synthesize** — LLM-driven concept generation from retrieved bundle context
@@ -84,7 +85,7 @@ await kb.export({ path: "./backup" });
 
 ## Supported Formats
 
-- **Documents**: PDF, DOCX, PPTX, XLSX
+- **Documents**: PDF, DOCX, PPTX
 - **Web**: HTML (via jsdom + Readability)
 - **Text**: TXT, CSV, JSON, XML, Markdown
 - **Buffers**: in-memory content with explicit metadata
@@ -131,6 +132,7 @@ npm run typecheck # strict TypeScript
 ```
 
 Test files by surface:
+
 - `test/knowledge-base.test.js` — core KnowledgeBase workflows
 - `test/source-parsers.test.js` — markdown/text/JSON/HTML/URL parsing
 - `test/document-parsers.test.js` — PDF/DOCX/PPTX parser coverage

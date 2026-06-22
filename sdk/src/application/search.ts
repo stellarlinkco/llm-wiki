@@ -3,7 +3,7 @@ export function tokenize(content: string): string[] {
   if (matches === null) {
     return [];
   }
-  return matches.flatMap((match) => isHanRun(match) ? hanNgrams(match) : [match]);
+  return matches.flatMap((match) => (isHanRun(match) ? hanNgrams(match) : [match]));
 }
 
 function isHanRun(value: string): boolean {
@@ -24,9 +24,11 @@ function hanNgrams(value: string): string[] {
   return tokens;
 }
 
-
 export function extractSnippet(content: string, queryTokens: string[]): string {
-  const plain = content.replace(/---[\s\S]*?---/, "").replace(/\s+/g, " ").trim();
+  const plain = content
+    .replace(/---[\s\S]*?---/, "")
+    .replace(/\s+/g, " ")
+    .trim();
   const lower = plain.toLowerCase();
   let start = 0;
   for (const token of queryTokens) {

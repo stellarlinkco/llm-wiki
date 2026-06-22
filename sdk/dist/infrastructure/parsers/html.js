@@ -13,40 +13,66 @@ export class HtmlSourceParser {
         const ext = extension(input);
         return ext === ".html" || ext === ".htm";
     }
-    async parse(input) {
+    parse(input) {
         try {
-            const dom = new JSDOM(input.content, { url: input.url });
-            const article = new Readability(dom.window.document.cloneNode(true)).parse();
-            const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
-            turndown.addRule("safe-links", {
-                filter: (node) => node.nodeName === "A",
-                replacement: (content, node) => {
-                    const element = node;
-                    const rawHref = element.getAttribute("href");
-                    const href = safeHref(rawHref, dom.window.document.baseURI);
-                    return href === "" ? content : `[${content}](${href})`;
-                },
-            });
-            const title = input.title ?? firstText(dom.window.document.querySelector("h1")?.textContent, article?.title, dom.window.document.title, sourceName(input));
-            const fallbackDocument = dom.window.document.cloneNode(true);
-            fallbackDocument.querySelectorAll("script,style,noscript").forEach((node) => node.remove());
-            const html = article?.content ?? fallbackDocument.body?.innerHTML ?? "";
-            let markdown = turndown.turndown(html).trim();
-            if (markdown === "") {
-                markdown = fallbackDocument.body?.textContent?.trim() ?? "";
-            }
-            return parsedMarkdown(input, this.name, title, markdown, article?.excerpt?.trim());
+            return Promise.resolve(parseHtmlSource(input, this.name));
         }
         catch (error) {
             if (error instanceof ParserError) {
-                throw error;
+                return Promise.reject(error);
             }
-            throw new ParserError("PARSE_FAILED", `HTML parsing failed: ${error instanceof Error ? error.message : String(error)}`, sourceContext(input));
+            return Promise.reject(new ParserError("PARSE_FAILED", `HTML parsing failed: ${error instanceof Error ? error.message : String(error)}`, sourceContext(input)));
         }
     }
 }
+function parseHtmlSource(input, parserName) {
+    const dom = new JSDOM(input.content, { url: input.url });
+    const article = new Readability(dom.window.document.cloneNode(true)).parse();
+    const turndown = createTurndownService(dom.window.document.baseURI);
+    const title = resolveHtmlTitle(input, dom, article);
+    const fallbackDocument = dom.window.document.cloneNode(true);
+    fallbackDocument.querySelectorAll("script,style,noscript").forEach((node) => {
+        node.remove();
+    });
+    const markdown = htmlToMarkdown(turndown, article, fallbackDocument);
+    return parsedMarkdown(input, parserName, title, markdown, article?.excerpt?.trim());
+}
+function createTurndownService(baseUri) {
+    const turndown = new TurndownService({ headingStyle: "atx", codeBlockStyle: "fenced" });
+    turndown.addRule("safe-links", {
+        filter: (node) => node.nodeName === "A",
+        replacement: (content, node) => {
+            const element = node;
+            const rawHref = element.getAttribute("href");
+            const href = safeHref(rawHref, baseUri);
+            return href === "" ? content : `[${content}](${href})`;
+        },
+    });
+    return turndown;
+}
+function resolveHtmlTitle(input, dom, article) {
+    return (input.title ??
+        firstText(dom.window.document.querySelector("h1")?.textContent, article?.title, dom.window.document.title, sourceName(input)));
+}
+function htmlToMarkdown(turndown, article, fallbackDocument) {
+    const html = article?.content ?? fallbackDocument.body.innerHTML;
+    let markdown = turndown.turndown(html).trim();
+    if (markdown === "") {
+        markdown = fallbackDocument.body.textContent.trim();
+    }
+    return markdown;
+}
+function stripControlChars(value) {
+    let result = "";
+    for (const char of value) {
+        if (char.charCodeAt(0) > 0x20) {
+            result += char;
+        }
+    }
+    return result;
+}
 function isDangerousHref(href) {
-    const normalized = href.replace(/[\u0000-\u0020]+/g, "").toLowerCase();
+    const normalized = stripControlChars(href).toLowerCase();
     return normalized.startsWith("javascript:") || normalized.startsWith("data:") || normalized.startsWith("vbscript:");
 }
 function safeHref(rawHref, base) {

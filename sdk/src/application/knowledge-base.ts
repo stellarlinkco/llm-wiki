@@ -1,4 +1,4 @@
-import { basename, dirname, extname, join, resolve } from "node:path";
+import { basename, extname, resolve } from "node:path";
 
 import type {
   BundleStore,
@@ -6,13 +6,13 @@ import type {
   ConceptDocument,
   CrawlOptions,
   ExportOptions,
+  IngestManyOptions,
   IngestOptions,
   KnowledgeBaseOptions,
   ListConceptOptions,
   LLMProvider,
   OkfFrontmatter,
   ParsedSource,
-  ParserSourceInput,
   QueryAnswer,
   QueryOptions,
   SearchAdapter,
@@ -26,7 +26,7 @@ import type {
   WriteConceptOptions,
   WriteIndexOptions,
 } from "../domain/types.js";
-import { ConfigurationError, ParserError, errorMessage } from "../domain/errors.js";
+import { ConfigurationError, errorMessage } from "../domain/errors.js";
 import { FilesystemBundleStore } from "../infrastructure/filesystem-store.js";
 import { LocalSearchAdapter } from "../infrastructure/local-search.js";
 import { DefaultSourceParser } from "../infrastructure/source-parser.js";
@@ -41,6 +41,13 @@ import {
   titleFromPath,
   validateReservedFile,
 } from "../infrastructure/markdown.js";
+import {
+  collectGuardedUpdateFailures,
+  collectSynthesizeGuardedUpdateFailures,
+  mergeWriteConceptFrontmatter,
+} from "./okf-write-guards.js";
+import { filterQueryAnswerText } from "./query-answer.js";
+import { buildProgressiveIndexFiles } from "./index-catalog.js";
 import { tokenize } from "./search.js";
 import {
   boundedSlug,
@@ -50,17 +57,22 @@ import {
   extractSitemapLocations,
   failurePath,
   frontmatterMetadata,
-  hasUrlScheme,
+  internalLinkTarget,
   publicResource,
   sha256,
   slugify,
   sourceBasename,
+  sourceCandidateMatches,
+  sourceDocumentUsesUrl,
   sourceIdentity,
+  synthesisSystemContent,
+  synthesisWriteFrontmatter,
   toParserInput,
 } from "./helpers.js";
-
 const DEFAULT_SYNTHESIS_PROMPT =
   'Generate OKF concept documents as JSON. Return {"concepts":[{"path":"concepts/name.md","title":"...","description":"...","tags":["..."],"body":"...","sourcePaths":["sources/name.md"]}]} only.';
+
+type ParsedMarkdownDocument = ReturnType<typeof parseMarkdown>;
 
 export class KnowledgeBase {
   private constructor(
@@ -109,6 +121,24 @@ export class KnowledgeBase {
     return this.writeSource(options, "ingest");
   }
 
+  async ingestMany(options: IngestManyOptions): Promise<ChangeSet> {
+    const changeSet = emptyChangeSet("ingest");
+    if (options.paths.length === 0) {
+      return this.emptyIngestManyChangeSet(changeSet);
+    }
+    const seen = new Set<string>();
+    for (const path of options.paths) {
+      const identity = sourceIdentity(toParserInput(path));
+      if (seen.has(identity)) {
+        continue;
+      }
+      seen.add(identity);
+      this.mergeChangeSet(changeSet, await this.writeSource({ path }, "ingest", { deferReindex: true }));
+    }
+    await this.reindexBatch(changeSet);
+    return changeSet;
+  }
+
   async update(options: IngestOptions): Promise<ChangeSet> {
     return this.writeSource(options, "update");
   }
@@ -147,9 +177,9 @@ export class KnowledgeBase {
     }
     await this.appendLog("crawl", [
       `Sitemap: ${sitemapUrl.toString()}`,
-      `Created: ${changeSet.created.length}`,
-      `Updated: ${changeSet.updated.length}`,
-      `Failed: ${changeSet.failed.length}`,
+      `Created: ${String(changeSet.created.length)}`,
+      `Updated: ${String(changeSet.updated.length)}`,
+      `Failed: ${String(changeSet.failed.length)}`,
     ]);
     return changeSet;
   }
@@ -159,15 +189,32 @@ export class KnowledgeBase {
     const outputRel = this.conceptOutputPath(options.path);
     const existed = await this.store.exists(outputRel);
     const now = new Date().toISOString();
-    const frontmatter: OkfFrontmatter = {
-      ...toOkfFrontmatter({ type: options.type ?? "Concept", ...options.frontmatter }),
-      type: options.type ?? "Concept",
-      title: options.title,
-      ...(options.description === undefined ? {} : { description: options.description }),
-      tags: options.tags ?? [],
-      timestamp: now,
-      ...(options.sourcePaths === undefined ? {} : { source_paths: options.sourcePaths }),
-    };
+    const existingDocument = existed ? parseMarkdown(await this.store.read(outputRel)) : undefined;
+    const frontmatter = mergeWriteConceptFrontmatter(
+      existingDocument === undefined
+        ? { type: options.type ?? "Concept" }
+        : toOkfFrontmatter(existingDocument.frontmatter),
+      options,
+      now,
+    );
+    const guardFailures =
+      options.guardedUpdate === true && existingDocument !== undefined
+        ? collectGuardedUpdateFailures(
+            existingDocument.frontmatter,
+            existingDocument.body,
+            frontmatter,
+            options.body,
+            options,
+          )
+        : [];
+    if (guardFailures.length > 0) {
+      changeSet.failed.push({
+        path: outputRel,
+        code: "guarded_update_rejected",
+        error: `Guarded update rejected: ${guardFailures.join("; ")}.`,
+      });
+      return changeSet;
+    }
     const document = serializeMarkdown(frontmatter, options.body);
     await this.store.write(outputRel, document);
     if (existed) {
@@ -183,27 +230,23 @@ export class KnowledgeBase {
   async writeIndex(options: WriteIndexOptions): Promise<ChangeSet> {
     const changeSet = emptyChangeSet("writeIndex");
     const docs = await this.readConcepts();
-    const sourceDocs = docs.filter((doc) => doc.frontmatter.type === "Source Document");
-    const conceptDocs = docs.filter((doc) => doc.frontmatter.type !== "Source Document");
-    const body = [
-      `# ${options.title}`,
-      "",
-      ...(options.description === undefined ? [] : [options.description, ""]),
-      "## Sources",
-      "",
-      ...sourceDocs.map(
-        (doc) => `- [${doc.frontmatter.title ?? titleFromPath(doc.path)}](${doc.path}) — ${doc.frontmatter.type}`,
-      ),
-      "",
-      "## Concepts",
-      "",
-      ...conceptDocs.map(
-        (doc) => `- [${doc.frontmatter.title ?? titleFromPath(doc.path)}](${doc.path}) — ${doc.frontmatter.type}`,
-      ),
-    ].join("\n");
-    await this.store.write("index.md", `---\nokf_version: "0.1"\n---\n\n${body.trimEnd()}\n`);
-    changeSet.updated.push("index.md");
-    await this.appendLog("writeIndex", ["Updated: index.md"]);
+    const entries = docs.map((doc) => ({
+      path: doc.path,
+      title:
+        typeof doc.frontmatter.title === "string" && doc.frontmatter.title.trim() !== ""
+          ? doc.frontmatter.title
+          : titleFromPath(doc.path),
+      type: doc.frontmatter.type,
+    }));
+    const indexFiles = buildProgressiveIndexFiles(entries, options);
+    for (const [path, content] of [...indexFiles.entries()].sort(([left], [right]) => left.localeCompare(right))) {
+      await this.store.write(path, content);
+      changeSet.updated.push(path);
+    }
+    await this.appendLog(
+      "writeIndex",
+      changeSet.updated.map((path) => `Updated: ${path}`),
+    );
     return changeSet;
   }
 
@@ -222,10 +265,7 @@ export class KnowledgeBase {
         return `# ${result.path}\n${content}`;
       }),
     );
-    const systemContent =
-      options.outputSchema !== undefined
-        ? `${options.outputSchema}\n\n${options.systemPrompt ?? DEFAULT_SYNTHESIS_PROMPT}`
-        : (options.systemPrompt ?? DEFAULT_SYNTHESIS_PROMPT);
+    const systemContent = synthesisSystemContent(options, DEFAULT_SYNTHESIS_PROMPT);
     const response = await this.llm.generate({
       structuredOutput: { type: "json" },
       messages: [
@@ -239,12 +279,29 @@ export class KnowledgeBase {
     const concepts = conceptsFromSynthesis(response.json ?? response.text);
     for (const concept of concepts) {
       try {
+        const outputRel = this.conceptOutputPath(concept.path);
+        const existed = await this.store.exists(outputRel);
+        const existingDocument = existed ? parseMarkdown(await this.store.read(outputRel)) : undefined;
+        const synthesizeFrontmatterFailures = collectSynthesizeGuardedUpdateFailures(
+          existingDocument?.frontmatter,
+          concept,
+        );
+        if (synthesizeFrontmatterFailures.length > 0) {
+          changeSet.failed.push({
+            path: outputRel,
+            code: "guarded_update_rejected",
+            error: `Guarded update rejected: frontmatter keys would change or be dropped: ${synthesizeFrontmatterFailures.join(", ")}.`,
+          });
+          continue;
+        }
         const result = await this.writeConcept({
           ...concept,
-          frontmatter: { ...concept.frontmatter, generated_by: "llm-wiki-sdk" },
+          frontmatter: synthesisWriteFrontmatter(existed, concept),
+          guardedUpdate: existed,
         });
         changeSet.created.push(...result.created);
         changeSet.updated.push(...result.updated);
+        changeSet.failed.push(...result.failed);
         changeSet.warnings.push(...result.warnings);
       } catch (error) {
         changeSet.failed.push(changeFailure(concept.path, error));
@@ -310,10 +367,11 @@ export class KnowledgeBase {
       ],
     });
     const retrievedPaths = new Set(retrieved.map((result) => result.path));
+    const filteredCitations =
+      response.citations?.filter((citation) => isBundleCitation(citation) && retrievedPaths.has(citation)) ?? [];
     const answer: QueryAnswer = {
-      text: response.text,
-      citations:
-        response.citations?.filter((citation) => isBundleCitation(citation) && retrievedPaths.has(citation)) ?? [],
+      text: filterQueryAnswerText(response.text, retrievedPaths),
+      citations: filteredCitations,
       retrieved,
     };
     if (response.usage !== undefined) {
@@ -331,62 +389,10 @@ export class KnowledgeBase {
       if (relPath.startsWith(".llm-wiki/")) {
         continue;
       }
-      const name = basename(relPath);
       const content = await this.store.read(relPath);
       const parsed = parseMarkdown(content);
-
-      if (name === "index.md" || name === "log.md") {
-        if (parsed.frontmatterError !== undefined) {
-          errors.push({ path: relPath, code: "malformed_frontmatter", message: parsed.frontmatterError });
-        } else {
-          validateReservedFile(parsed, relPath, errors);
-        }
-      } else if (!parsed.hasFrontmatter) {
-        errors.push({
-          path: relPath,
-          code: "missing_frontmatter",
-          message: "Concept document must start with YAML frontmatter.",
-        });
-      } else if (parsed.frontmatterError !== undefined) {
-        errors.push({ path: relPath, code: "malformed_frontmatter", message: parsed.frontmatterError });
-      } else if (typeof parsed.frontmatter.type !== "string" || parsed.frontmatter.type.trim() === "") {
-        errors.push({
-          path: relPath,
-          code: "missing_type",
-          message: "Concept document frontmatter must include a non-empty type field.",
-        });
-      }
-
-      for (const target of extractMarkdownLinks(parsed.body)) {
-        if (isExternalLink(target) || target.startsWith("#")) {
-          continue;
-        }
-        const targetWithoutFragment = target.split("#", 1)[0] ?? "";
-        if (targetWithoutFragment === "") {
-          continue;
-        }
-        const sourceUrl =
-          typeof parsed.frontmatter.resource === "string"
-            ? parsed.frontmatter.resource
-            : parsed.frontmatter.source_path;
-        if (typeof sourceUrl === "string" && hasUrlScheme(sourceUrl)) {
-          continue;
-        }
-        const targetRel = targetWithoutFragment.startsWith("/")
-          ? targetWithoutFragment.slice(1)
-          : join(dirname(relPath), targetWithoutFragment);
-        if (targetRel.startsWith("..")) {
-          errors.push({
-            path: relPath,
-            code: "link_outside_bundle",
-            message: `Internal link escapes bundle root: ${target}`,
-          });
-          continue;
-        }
-        if (!(await this.store.exists(targetRel))) {
-          warnings.push({ path: relPath, code: "broken_link", message: `Broken internal link: ${target}` });
-        }
-      }
+      this.validateMarkdownDocument(relPath, parsed, errors);
+      await this.validateMarkdownLinks(relPath, parsed, errors, warnings);
     }
 
     return { valid: errors.length === 0, errors, warnings };
@@ -426,7 +432,11 @@ export class KnowledgeBase {
     return changeSet;
   }
 
-  private async writeSource(options: IngestOptions, operation: "ingest" | "update"): Promise<ChangeSet> {
+  private async writeSource(
+    options: IngestOptions,
+    operation: "ingest" | "update",
+    writeOptions?: { deferReindex?: boolean },
+  ): Promise<ChangeSet> {
     const changeSet = emptyChangeSet(operation);
     const parserInput = toParserInput(options.path);
     const identity = sourceIdentity(parserInput);
@@ -472,18 +482,30 @@ export class KnowledgeBase {
       changeSet.created.push(outputRel);
     }
 
+    await this.finalizeSourceWrite(changeSet, outputRel, operation, existed, writeOptions);
+    return changeSet;
+  }
+
+  private async finalizeSourceWrite(
+    changeSet: ChangeSet,
+    outputRel: string,
+    operation: "ingest" | "update",
+    existed: boolean,
+    writeOptions?: { deferReindex?: boolean },
+  ): Promise<void> {
     try {
       await this.appendLog(operation, [`${existed ? "Updated" : "Created"}: ${outputRel}`]);
     } catch (error) {
       changeSet.warnings.push({ path: outputRel, code: "log_update_failed", message: errorMessage(error) });
+    }
+    if (writeOptions?.deferReindex === true) {
+      return;
     }
     try {
       await this.reindex();
     } catch (error) {
       changeSet.warnings.push({ path: outputRel, code: "reindex_failed", message: errorMessage(error) });
     }
-
-    return changeSet;
   }
 
   private async readConcepts(): Promise<ConceptDocument[]> {
@@ -516,19 +538,122 @@ export class KnowledgeBase {
     }
 
     const parsed = parseMarkdown(await this.store.read(candidate));
-    if (
-      parsed.frontmatter.source_id === sha256(sourceIdentity) ||
-      parsed.frontmatter.source_path === sourceIdentity ||
-      parsed.frontmatter.resource === sourceIdentity ||
-      (hasUrlScheme(resource) &&
-        parsed.frontmatter.source_id === undefined &&
-        (parsed.frontmatter.source_path === resource || parsed.frontmatter.resource === resource))
-    ) {
+    if (sourceCandidateMatches(parsed.frontmatter, sourceIdentity, resource)) {
       return candidate;
     }
 
     const sourceId = sha256(sourceIdentity).slice(0, 12);
     return `sources/${slug}-${sourceId}.md`;
+  }
+
+  private validateMarkdownDocument(relPath: string, parsed: ParsedMarkdownDocument, errors: ValidationFinding[]): void {
+    const name = basename(relPath);
+    if (name === "index.md" || name === "log.md") {
+      this.validateReservedMarkdownFile(parsed, relPath, errors);
+      return;
+    }
+    if (!parsed.hasFrontmatter) {
+      errors.push({
+        path: relPath,
+        code: "missing_frontmatter",
+        message: "Concept document must start with YAML frontmatter.",
+      });
+      return;
+    }
+    if (parsed.frontmatterError !== undefined) {
+      errors.push({ path: relPath, code: "malformed_frontmatter", message: parsed.frontmatterError });
+      return;
+    }
+    if (typeof parsed.frontmatter.type !== "string" || parsed.frontmatter.type.trim() === "") {
+      errors.push({
+        path: relPath,
+        code: "missing_type",
+        message: "Concept document frontmatter must include a non-empty type field.",
+      });
+    }
+  }
+
+  private validateReservedMarkdownFile(
+    parsed: ParsedMarkdownDocument,
+    relPath: string,
+    errors: ValidationFinding[],
+  ): void {
+    if (parsed.frontmatterError !== undefined) {
+      errors.push({ path: relPath, code: "malformed_frontmatter", message: parsed.frontmatterError });
+      return;
+    }
+    validateReservedFile(parsed, relPath, errors);
+  }
+
+  private async validateMarkdownLinks(
+    relPath: string,
+    parsed: ParsedMarkdownDocument,
+    errors: ValidationFinding[],
+    warnings: ValidationFinding[],
+  ): Promise<void> {
+    for (const target of extractMarkdownLinks(parsed.body)) {
+      await this.validateMarkdownLink(relPath, parsed, target, errors, warnings);
+    }
+  }
+
+  private async validateMarkdownLink(
+    relPath: string,
+    parsed: ParsedMarkdownDocument,
+    target: string,
+    errors: ValidationFinding[],
+    warnings: ValidationFinding[],
+  ): Promise<void> {
+    if (isExternalLink(target) || target.startsWith("#") || sourceDocumentUsesUrl(parsed.frontmatter)) {
+      return;
+    }
+    const targetRel = internalLinkTarget(relPath, target);
+    if (targetRel === undefined) {
+      return;
+    }
+    if (targetRel.startsWith("..")) {
+      errors.push({
+        path: relPath,
+        code: "link_outside_bundle",
+        message: `Internal link escapes bundle root: ${target}`,
+      });
+      return;
+    }
+    if (!(await this.store.exists(targetRel))) {
+      warnings.push({ path: relPath, code: "broken_link", message: `Broken internal link: ${target}` });
+    }
+  }
+
+  private emptyIngestManyChangeSet(changeSet: ChangeSet): ChangeSet {
+    changeSet.warnings.push({
+      path: "ingestMany",
+      code: "empty_paths",
+      message: "ingestMany received an empty paths array; no files were ingested.",
+    });
+    return changeSet;
+  }
+
+  private mergeChangeSet(target: ChangeSet, source: ChangeSet): void {
+    target.created.push(...source.created);
+    target.updated.push(...source.updated);
+    target.deleted.push(...source.deleted);
+    target.skipped.push(...source.skipped);
+    target.failed.push(...source.failed);
+    target.warnings.push(...source.warnings);
+  }
+
+  private async reindexBatch(changeSet: ChangeSet): Promise<void> {
+    if (changeSet.created.length === 0 && changeSet.updated.length === 0) {
+      return;
+    }
+    try {
+      await this.reindex();
+    } catch (error) {
+      changeSet.warnings.push({
+        path: "ingestMany",
+        code: "reindex_failed",
+        message: errorMessage(error),
+      });
+    }
   }
 
   private conceptOutputPath(path: string): string {

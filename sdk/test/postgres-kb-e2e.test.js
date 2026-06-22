@@ -163,7 +163,9 @@ test("PostgresBundleStore + KnowledgeBase E2E", async (t) => {
 
     const indexContent = await store.read("index.md");
     assert.ok(indexContent.includes("GEO 知识库"));
-    assert.ok(indexContent.includes("concepts/test.md"));
+    assert.ok(indexContent.includes("[Concepts](concepts/index.md)"));
+    const conceptsIndex = await store.read("concepts/index.md");
+    assert.ok(conceptsIndex.includes("test.md"));
   });
 
   await t.test("validate passes for well-formed bundle", async () => {

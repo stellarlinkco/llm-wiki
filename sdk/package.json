@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "demo:create-kb": "npm run build && node examples/create-knowledge-base.mjs",
-    "test": "npm run build && node --test test/knowledge-base.test.js test/source-parsers.test.js test/document-parsers.test.js test/providers.test.js test/validation.test.js test/filesystem-store.test.js test/sqlite-store.test.js test/sqlite-kb-e2e.test.js",
+    "test": "npm run build && node --test test/knowledge-base.test.js test/batch-ingest.test.js test/bigquery-search.test.js test/index-catalog.test.js test/source-parsers.test.js test/document-parsers.test.js test/providers.test.js test/search-query-public.test.js test/validation.test.js test/prompt-assets.test.js test/filesystem-store.test.js test/sqlite-store.test.js test/sqlite-kb-e2e.test.js test/pack-consumer.test.js",
     "test:pg": "npm run build && node --test test/postgres-kb-e2e.test.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint . --max-warnings 0",
@@ -54,6 +54,7 @@
     "@types/turndown": "^5.0.6",
     "c8": "^10.0.0",
     "eslint": "^9.0.0",
+    "@eslint/js": "^9.0.0",
     "eslint-plugin-import": "^2.31.0",
     "globals": "^16.0.0",
     "husky": "^9.0.0",
@@ -79,5 +80,13 @@
   },
   "optionalDependencies": {
     "better-sqlite3": "^12.11.1"
+  },
+  "knip": {
+    "ignoreDependencies": [
+      "@commitlint/cli",
+      "@commitlint/config-conventional",
+      "husky",
+      "lint-staged"
+    ]
   }
 }

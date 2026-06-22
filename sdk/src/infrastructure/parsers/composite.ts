@@ -10,21 +10,27 @@ import { resolveParserInput, sourceContext, type FormatParser } from "./shared.j
 import { TextSourceParser } from "./text.js";
 
 export class CompositeSourceParser implements SourceParser {
-  constructor(private readonly parsers: readonly FormatParser[] = [
-    new MarkdownSourceParser(),
-    new TextSourceParser(),
-    new JsonSourceParser(),
-    new HtmlSourceParser(),
-    new PdfSourceParser(),
-    new DocxSourceParser(),
-    new PptxSourceParser(),
-  ]) {}
+  constructor(
+    private readonly parsers: readonly FormatParser[] = [
+      new MarkdownSourceParser(),
+      new TextSourceParser(),
+      new JsonSourceParser(),
+      new HtmlSourceParser(),
+      new PdfSourceParser(),
+      new DocxSourceParser(),
+      new PptxSourceParser(),
+    ],
+  ) {}
 
   async parse(input: string | ParserSourceInput): Promise<ParsedSource> {
     const resolved = await resolveParserInput(input);
     const parser = this.parsers.find((candidate) => candidate.supports(resolved));
     if (parser === undefined) {
-      throw new ParserError("UNSUPPORTED_SOURCE", "No source parser is registered for this input.", sourceContext(resolved));
+      throw new ParserError(
+        "UNSUPPORTED_SOURCE",
+        "No source parser is registered for this input.",
+        sourceContext(resolved),
+      );
     }
     return await parser.parse(resolved);
   }

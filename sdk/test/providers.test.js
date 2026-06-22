@@ -31,7 +31,7 @@ test("query does not fabricate citations when provider returns none", async () =
   const provider = {
     async generate() {
       return { text: "I cannot cite this answer." };
-    }
+    },
   };
 
   const kb = await KnowledgeBase.create({ root, llm: provider });
@@ -50,9 +50,9 @@ test("query uses configured provider, returns citations, and omits API key from 
       return {
         text: "Clean Architecture separates domain logic from infrastructure.",
         citations: ["sources/architecture.md"],
-        usage: { inputTokens: 12, outputTokens: 8 }
+        usage: { inputTokens: 12, outputTokens: 8 },
       };
-    }
+    },
   };
 
   const sourceRoot = await tempRoot();
@@ -67,7 +67,6 @@ test("query uses configured provider, returns citations, and omits API key from 
   assert.deepEqual(answer.citations, ["sources/architecture.md"]);
   assert.equal(answer.retrieved[0].path, "sources/architecture.md");
 
-
   const sourceDoc = await readFile(join(root, "sources", "architecture.md"), "utf8");
   const log = await readFile(join(root, "log.md"), "utf8");
   assert.equal(sourceDoc.includes(secret), false);
@@ -81,8 +80,11 @@ test("query filters provider-supplied citations to bundle-local paths", async ()
   await writeFile(source, "# Architecture\n\nClean Architecture separates domain logic from infrastructure.\n", "utf8");
   const provider = {
     async generate() {
-      return { text: "answer", citations: ["../../secrets.md", "sources/architecture.md", "https://example.com/doc.md"] };
-    }
+      return {
+        text: "answer",
+        citations: ["../../secrets.md", "sources/architecture.md", "https://example.com/doc.md"],
+      };
+    },
   };
 
   const kb = await KnowledgeBase.create({ root, llm: provider });
@@ -100,7 +102,7 @@ test("query filters provider citations to retrieved bundle documents", async () 
   const provider = {
     async generate() {
       return { text: "answer", citations: ["sources/missing.md", "sources/architecture.md"] };
-    }
+    },
   };
 
   const kb = await KnowledgeBase.create({ root, llm: provider });
@@ -110,13 +112,141 @@ test("query filters provider citations to retrieved bundle documents", async () 
   assert.deepEqual(answer.citations, ["sources/architecture.md"]);
 });
 
+test("query filters custom SearchAdapter provider citations to retrieved bundle documents", async () => {
+  const root = await tempRoot();
+  const provider = {
+    async generate(request) {
+      assert.ok(request.messages.at(-1).content.includes("Retrieved custom adapter concept"));
+      assert.equal(request.messages.at(-1).content.includes("Non retrieved concept"), false);
+      return {
+        text: "answer",
+        citations: ["concepts/retrieved.md", "concepts/not-retrieved.md", "https://example.com/not-bundle.md"],
+      };
+    },
+  };
+  const searchCalls = [];
+  const search = {
+    async index() {},
+    async search(query, options) {
+      searchCalls.push({ query, options });
+      return [
+        {
+          path: "concepts/retrieved.md",
+          title: "Retrieved",
+          type: "Custom Result",
+          score: 0.9,
+          snippet: "Retrieved custom adapter concept",
+          tags: ["custom"],
+        },
+      ];
+    },
+    async exists() {
+      return true;
+    },
+  };
+
+  const kb = await KnowledgeBase.create({ root, llm: provider, search });
+  await kb.writeConcept({
+    path: "concepts/retrieved.md",
+    title: "Retrieved",
+    body: "Retrieved custom adapter concept.",
+  });
+  await kb.writeConcept({
+    path: "concepts/not-retrieved.md",
+    title: "Not Retrieved",
+    body: "Non retrieved concept.",
+  });
+
+  const answer = await kb.query("custom retrieval", { limit: 1 });
+
+  assert.deepEqual(searchCalls, [{ query: "custom retrieval", options: { limit: 1 } }]);
+  assert.deepEqual(answer.citations, ["concepts/retrieved.md"]);
+  assert.deepEqual(
+    answer.retrieved.map((result) => result.path),
+    ["concepts/retrieved.md"],
+  );
+});
+
+test("query strips non-retrieved bundle citations and external links from answer text", async () => {
+  const root = await tempRoot();
+  const sourceRoot = await tempRoot();
+  const source = join(sourceRoot, "architecture.md");
+  await writeFile(source, "# Architecture\n\nClean Architecture separates domain logic from infrastructure.\n", "utf8");
+  const provider = {
+    async generate() {
+      return {
+        text: [
+          "See [missing](concepts/not-retrieved.md) and [ok](sources/architecture.md).",
+          "Relative [missing](../concepts/not-retrieved.md) and [ok](../sources/architecture.md).",
+          "External [fake](https://fake.example/doc) and autolink <https://fake.example/autolink>.",
+          "Bare external https://fake.example/bare URL.",
+          "Status:OK after retry and Error:TypeError from parser.",
+          "Bare concepts/not-retrieved.md and ./concepts/not-retrieved.md mention.",
+          'HTML <a href="concepts/not-retrieved.md">missing</a> and <a href="sources/architecture.md">ok</a>.',
+          'External <a href="https://fake.example/html">fake</a>.',
+        ].join(" "),
+        citations: [],
+      };
+    },
+  };
+
+  const kb = await KnowledgeBase.create({ root, llm: provider });
+  await kb.ingest({ path: source });
+  const answer = await kb.query("What does Clean Architecture separate?");
+
+  assert.deepEqual(answer.citations, []);
+  assert.match(answer.text, /\[ok\]\(sources\/architecture\.md\)/);
+  assert.match(answer.text, /\[ok\]\(\.\.\/sources\/architecture\.md\)/);
+  assert.doesNotMatch(answer.text, /concepts\/not-retrieved\.md/);
+  assert.doesNotMatch(answer.text, /\.\/concepts\/not-retrieved\.md/);
+  assert.doesNotMatch(answer.text, /https:\/\/fake\.example/);
+  assert.match(answer.text, /<a href="sources\/architecture\.md">ok<\/a>/);
+  assert.doesNotMatch(answer.text, /<a[^>]+concepts\/not-retrieved\.md/);
+  assert.match(answer.text, /\bmissing\b/);
+  assert.match(answer.text, /\bfake\b/);
+  assert.match(answer.text, /Status:OK/);
+  assert.match(answer.text, /Error:TypeError/);
+});
+
+test("query strips unquoted HTML hrefs except retrieved bundle links from answer text", async () => {
+  const root = await tempRoot();
+  const sourceRoot = await tempRoot();
+  const source = join(sourceRoot, "architecture.md");
+  await writeFile(source, "# Architecture\n\nClean Architecture separates domain logic from infrastructure.\n", "utf8");
+  const provider = {
+    async generate() {
+      return {
+        text: [
+          "External <a href=https://fake.example/unquoted>external</a>.",
+          "Missing <a href=concepts/not-retrieved.md>missing</a>.",
+          "Retrieved <a href=sources/architecture.md>architecture</a>.",
+        ].join(" "),
+        citations: [],
+      };
+    },
+  };
+
+  const kb = await KnowledgeBase.create({ root, llm: provider });
+  await kb.ingest({ path: source });
+  const answer = await kb.query("What does Clean Architecture separate?");
+
+  assert.deepEqual(answer.citations, []);
+  assert.doesNotMatch(answer.text, /https:\/\/fake\.example/);
+  assert.doesNotMatch(answer.text, /concepts\/not-retrieved\.md/);
+  assert.doesNotMatch(answer.text, /<a\s+href=>/i);
+  assert.doesNotMatch(answer.text, /<a\s+href>\s*<\/a>/i);
+  assert.match(answer.text, /\bexternal\b/);
+  assert.match(answer.text, /\bmissing\b/);
+  assert.match(answer.text, /<a href=sources\/architecture\.md>architecture<\/a>/);
+});
+
 test("query fails clearly without an LLM provider", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
 
   await assert.rejects(
     () => kb.query("anything"),
-    (error) => error instanceof ConfigurationError && /LLM provider/.test(error.message)
+    (error) => error instanceof ConfigurationError && /LLM provider/.test(error.message),
   );
 });
 
@@ -124,11 +254,11 @@ test("provider constructors reject missing and blank API keys", () => {
   for (const Provider of [OpenAIProvider, AnthropicProvider]) {
     assert.throws(
       () => new Provider({}),
-      (error) => error instanceof ConfigurationError && /non-empty apiKey/.test(error.message)
+      (error) => error instanceof ConfigurationError && /non-empty apiKey/.test(error.message),
     );
     assert.throws(
       () => new Provider({ apiKey: " \t\n" }),
-      (error) => error instanceof ConfigurationError && /non-empty apiKey/.test(error.message)
+      (error) => error instanceof ConfigurationError && /non-empty apiKey/.test(error.message),
     );
   }
 });
@@ -142,11 +272,11 @@ test("OpenAIProvider uses the official client without exposing the API key in re
           requests.push(request);
           return {
             choices: [{ message: { content: "answer" } }],
-            usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 }
+            usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
           };
-        }
-      }
-    }
+        },
+      },
+    },
   };
 
   const provider = new OpenAIProvider({ apiKey: "sk-provider-secret", model: "gpt-test", client });
@@ -166,14 +296,17 @@ test("OpenAIProvider requests JSON mode and parses structured output", async () 
       completions: {
         create: async (request) => {
           requests.push(request);
-          return { choices: [{ message: { content: "{\"concept\":\"Architecture\"}" } }] };
-        }
-      }
-    }
+          return { choices: [{ message: { content: '{"concept":"Architecture"}' } }] };
+        },
+      },
+    },
   };
 
   const provider = new OpenAIProvider({ apiKey: "sk-provider-secret", model: "gpt-test", client });
-  const response = await provider.generate({ messages: [{ role: "user", content: "Return a concept name." }], structuredOutput: { type: "json" } });
+  const response = await provider.generate({
+    messages: [{ role: "user", content: "Return a concept name." }],
+    structuredOutput: { type: "json" },
+  });
 
   assert.deepEqual(requests[0].response_format, { type: "json_object" });
   assert.match(requests[0].messages[0].content, /Return only valid JSON/);
@@ -187,15 +320,18 @@ test("AnthropicProvider parses structured JSON output through fallback validatio
       create: async (request) => {
         requests.push(request);
         return {
-          content: [{ type: "text", text: "{\"concept\":\"Architecture\"}" }],
-          usage: { input_tokens: 1, output_tokens: 1 }
+          content: [{ type: "text", text: '{"concept":"Architecture"}' }],
+          usage: { input_tokens: 1, output_tokens: 1 },
         };
-      }
-    }
+      },
+    },
   };
 
   const provider = new AnthropicProvider({ apiKey: "sk-anthropic-secret", model: "claude-test", client });
-  const response = await provider.generate({ messages: [{ role: "user", content: "Return a concept name." }], structuredOutput: { type: "json" } });
+  const response = await provider.generate({
+    messages: [{ role: "user", content: "Return a concept name." }],
+    structuredOutput: { type: "json" },
+  });
 
   assert.match(requests[0].system, /Return only valid JSON/);
   assert.deepEqual(response.json, { concept: "Architecture" });
@@ -206,10 +342,14 @@ test("OpenAIProvider extracts and filters bundle-path citations from model text"
     chat: {
       completions: {
         create: async () => ({
-          choices: [{ message: { content: "See sources/architecture.md and concepts/design.md, not sources/../../secrets.md." } }]
-        })
-      }
-    }
+          choices: [
+            {
+              message: { content: "See sources/architecture.md and concepts/design.md, not sources/../../secrets.md." },
+            },
+          ],
+        }),
+      },
+    },
   };
 
   const provider = new OpenAIProvider({ apiKey: "sk-provider-secret", model: "gpt-test", client });
@@ -226,18 +366,23 @@ test("AnthropicProvider uses the official client and extracts bundle citations",
         requests.push(request);
         return {
           content: [{ type: "text", text: "Answer cites sources/architecture.md." }],
-          usage: { input_tokens: 7, output_tokens: 4 }
+          usage: { input_tokens: 7, output_tokens: 4 },
         };
-      }
-    }
+      },
+    },
   };
 
-  const provider = new AnthropicProvider({ apiKey: "sk-anthropic-secret", model: "claude-test", maxTokens: 64, client });
+  const provider = new AnthropicProvider({
+    apiKey: "sk-anthropic-secret",
+    model: "claude-test",
+    maxTokens: 64,
+    client,
+  });
   const response = await provider.generate({
     messages: [
       { role: "system", content: "Use citations." },
-      { role: "user", content: "Question" }
-    ]
+      { role: "user", content: "Question" },
+    ],
   });
 
   assert.equal(requests[0].model, "claude-test");

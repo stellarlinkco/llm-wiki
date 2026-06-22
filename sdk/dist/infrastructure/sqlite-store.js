@@ -47,7 +47,7 @@ export class SqliteBundleStore {
             .get(this.root, bundleRelPath);
         return Promise.resolve(row !== undefined);
     }
-    async read(bundleRelPath) {
+    read(bundleRelPath) {
         const row = this.db
             .prepare(`SELECT content FROM ${this.table} WHERE bundle_id = ? AND path = ?`)
             .get(this.root, bundleRelPath);
@@ -55,12 +55,12 @@ export class SqliteBundleStore {
             const err = Object.assign(new Error(`ENOENT: no such document, read '${bundleRelPath}'`), {
                 code: "ENOENT",
             });
-            throw err;
+            return Promise.reject(err);
         }
         if (typeof row === "object" && row !== null && "content" in row) {
-            return String(row.content);
+            return Promise.resolve(String(row.content));
         }
-        throw new Error(`Unexpected row shape reading '${bundleRelPath}'`);
+        return Promise.reject(new Error(`Unexpected row shape reading '${bundleRelPath}'`));
     }
     write(bundleRelPath, content) {
         const now = Date.now();

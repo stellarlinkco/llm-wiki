@@ -12,9 +12,14 @@ export class ValidationError extends Error {
   }
 }
 
-export type ParserErrorCode = "UNSUPPORTED_SOURCE" | "PARSE_FAILED" | "EMPTY_SOURCE" | "FETCH_FAILED" | "PDF_TEXT_LAYER_MISSING";
+type ParserErrorCode =
+  | "UNSUPPORTED_SOURCE"
+  | "PARSE_FAILED"
+  | "EMPTY_SOURCE"
+  | "FETCH_FAILED"
+  | "PDF_TEXT_LAYER_MISSING";
 
-export interface ParserErrorSource {
+interface ParserErrorSource {
   path?: string;
   url?: string;
   contentType?: string;

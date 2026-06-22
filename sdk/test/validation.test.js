@@ -26,7 +26,11 @@ import {
 test("validation rejects malformed frontmatter instead of ignoring bad YAML lines", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
-  await writeFile(join(root, "concepts", "malformed.md"), "---\ntype: Metric\nbad yaml line\n---\n\nBroken metadata.\n", "utf8");
+  await writeFile(
+    join(root, "concepts", "malformed.md"),
+    "---\ntype: Metric\nbad yaml line\n---\n\nBroken metadata.\n",
+    "utf8",
+  );
 
   const validation = await kb.validate();
   assert.equal(validation.valid, false);
@@ -36,7 +40,11 @@ test("validation rejects malformed frontmatter instead of ignoring bad YAML line
 test("validation accepts common YAML block lists in OKF frontmatter", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
-  await writeFile(join(root, "concepts", "tagged.md"), "---\ntype: Concept\ntitle: Tagged\ntags:\n  - architecture\n  - sdk\n---\n\nTagged concept.\n", "utf8");
+  await writeFile(
+    join(root, "concepts", "tagged.md"),
+    "---\ntype: Concept\ntitle: Tagged\ntags:\n  - architecture\n  - sdk\n---\n\nTagged concept.\n",
+    "utf8",
+  );
 
   const validation = await kb.validate();
   const concepts = await kb.listConcepts();
@@ -47,7 +55,11 @@ test("validation accepts common YAML block lists in OKF frontmatter", async () =
 test("frontmatter parser preserves quoted commas in inline YAML lists", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
-  await writeFile(join(root, "concepts", "segmented.md"), "---\ntype: Concept\ntitle: Segmented\ntags: [\"sales, enterprise\", sdk]\n---\n\nSegmented concept.\n", "utf8");
+  await writeFile(
+    join(root, "concepts", "segmented.md"),
+    '---\ntype: Concept\ntitle: Segmented\ntags: ["sales, enterprise", sdk]\n---\n\nSegmented concept.\n',
+    "utf8",
+  );
 
   const validation = await kb.validate();
   const concepts = await kb.listConcepts();
@@ -58,7 +70,11 @@ test("frontmatter parser preserves quoted commas in inline YAML lists", async ()
 test("frontmatter parser strips inline comments from YAML lists", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
-  await writeFile(join(root, "concepts", "commented.md"), "---\ntype: Concept\ntitle: Commented\ntags: [architecture, sdk] # public tags\n---\n\nCommented concept.\n", "utf8");
+  await writeFile(
+    join(root, "concepts", "commented.md"),
+    "---\ntype: Concept\ntitle: Commented\ntags: [architecture, sdk] # public tags\n---\n\nCommented concept.\n",
+    "utf8",
+  );
 
   const validation = await kb.validate();
   const concepts = await kb.listConcepts();
@@ -69,7 +85,11 @@ test("frontmatter parser strips inline comments from YAML lists", async () => {
 test("frontmatter parser keeps block lists with key comments", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
-  await writeFile(join(root, "concepts", "block-commented.md"), "---\ntype: Concept\ntitle: Block Commented\ntags: # public tags\n  - architecture\n  - sdk\n---\n\nBlock commented concept.\n", "utf8");
+  await writeFile(
+    join(root, "concepts", "block-commented.md"),
+    "---\ntype: Concept\ntitle: Block Commented\ntags: # public tags\n  - architecture\n  - sdk\n---\n\nBlock commented concept.\n",
+    "utf8",
+  );
 
   const validation = await kb.validate();
   const concepts = await kb.listConcepts();
@@ -80,7 +100,11 @@ test("frontmatter parser keeps block lists with key comments", async () => {
 test("frontmatter parser strips block list item comments", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
-  await writeFile(join(root, "concepts", "block-item-commented.md"), "---\ntype: Concept\ntitle: Block Item Commented\ntags:\n  - architecture # public tag\n  - sdk # implementation tag\n---\n\nBlock item commented concept.\n", "utf8");
+  await writeFile(
+    join(root, "concepts", "block-item-commented.md"),
+    "---\ntype: Concept\ntitle: Block Item Commented\ntags:\n  - architecture # public tag\n  - sdk # implementation tag\n---\n\nBlock item commented concept.\n",
+    "utf8",
+  );
 
   const validation = await kb.validate();
   const concepts = await kb.listConcepts();
@@ -101,7 +125,11 @@ test("frontmatter serializer escapes newlines in parser-derived scalar values", 
   const root = await tempRoot();
   const sourceRoot = await tempRoot();
   const source = join(sourceRoot, "newline-title.html");
-  await writeFile(source, "<!doctype html><html><body><main><h1>Quarterly\nsource_path: spoofed</h1><p>safe body</p></main></body></html>", "utf8");
+  await writeFile(
+    source,
+    "<!doctype html><html><body><main><h1>Quarterly\nsource_path: spoofed</h1><p>safe body</p></main></body></html>",
+    "utf8",
+  );
 
   const kb = await KnowledgeBase.create({ root });
   const changeSet = await kb.ingest({ path: source });
@@ -143,7 +171,11 @@ test("validation rejects internal links that escape the bundle root", async () =
   const outsideRoot = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
   await writeFile(join(outsideRoot, "outside.md"), "---\ntype: Concept\n---\n\nOutside.\n", "utf8");
-  await writeFile(join(root, "concepts", "reader.md"), "---\ntype: Concept\n---\n\nSee [outside](../../outside.md).\n", "utf8");
+  await writeFile(
+    join(root, "concepts", "reader.md"),
+    "---\ntype: Concept\n---\n\nSee [outside](../../outside.md).\n",
+    "utf8",
+  );
 
   const validation = await kb.validate();
   assert.equal(validation.valid, false);
@@ -153,8 +185,16 @@ test("validation rejects internal links that escape the bundle root", async () =
 test("validation strips markdown link fragments before filesystem existence checks", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
-  await writeFile(join(root, "concepts", "architecture.md"), "---\ntype: Concept\ntitle: Architecture\n---\n\n# Decisions\n\nSee details.\n", "utf8");
-  await writeFile(join(root, "concepts", "reader.md"), "---\ntype: Concept\ntitle: Reader\n---\n\nSee [decisions](./architecture.md#decisions).\n", "utf8");
+  await writeFile(
+    join(root, "concepts", "architecture.md"),
+    "---\ntype: Concept\ntitle: Architecture\n---\n\n# Decisions\n\nSee details.\n",
+    "utf8",
+  );
+  await writeFile(
+    join(root, "concepts", "reader.md"),
+    "---\ntype: Concept\ntitle: Reader\n---\n\nSee [decisions](./architecture.md#decisions).\n",
+    "utf8",
+  );
 
   const validation = await kb.validate();
   assert.deepEqual(validation.warnings, []);
@@ -163,8 +203,16 @@ test("validation strips markdown link fragments before filesystem existence chec
 test("validation ignores markdown link titles during filesystem checks", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
-  await writeFile(join(root, "concepts", "architecture.md"), "---\ntype: Concept\ntitle: Architecture\n---\n\n# Decisions\n\nSee details.\n", "utf8");
-  await writeFile(join(root, "concepts", "reader.md"), "---\ntype: Concept\ntitle: Reader\n---\n\nSee [decisions](./architecture.md \"Architecture\").\n", "utf8");
+  await writeFile(
+    join(root, "concepts", "architecture.md"),
+    "---\ntype: Concept\ntitle: Architecture\n---\n\n# Decisions\n\nSee details.\n",
+    "utf8",
+  );
+  await writeFile(
+    join(root, "concepts", "reader.md"),
+    '---\ntype: Concept\ntitle: Reader\n---\n\nSee [decisions](./architecture.md "Architecture").\n',
+    "utf8",
+  );
 
   const validation = await kb.validate();
   assert.deepEqual(validation.warnings, []);
@@ -173,8 +221,16 @@ test("validation ignores markdown link titles during filesystem checks", async (
 test("validation handles parentheses in markdown link destinations", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
-  await writeFile(join(root, "concepts", "architecture(adr).md"), "---\ntype: Concept\ntitle: Architecture ADR\n---\n\n# ADR\n\nSee details.\n", "utf8");
-  await writeFile(join(root, "concepts", "reader.md"), "---\ntype: Concept\ntitle: Reader\n---\n\nSee [ADR](./architecture(adr).md).\n", "utf8");
+  await writeFile(
+    join(root, "concepts", "architecture(adr).md"),
+    "---\ntype: Concept\ntitle: Architecture ADR\n---\n\n# ADR\n\nSee details.\n",
+    "utf8",
+  );
+  await writeFile(
+    join(root, "concepts", "reader.md"),
+    "---\ntype: Concept\ntitle: Reader\n---\n\nSee [ADR](./architecture(adr).md).\n",
+    "utf8",
+  );
 
   const validation = await kb.validate();
   assert.deepEqual(validation.warnings, []);
@@ -183,8 +239,16 @@ test("validation handles parentheses in markdown link destinations", async () =>
 test("validation handles escaped parentheses in markdown link destinations", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
-  await writeFile(join(root, "concepts", "architecture(adr).md"), "---\ntype: Concept\ntitle: Architecture ADR\n---\n\n# ADR\n\nSee details.\n", "utf8");
-  await writeFile(join(root, "concepts", "reader.md"), "---\ntype: Concept\ntitle: Reader\n---\n\nSee [ADR](./architecture\\(adr\\).md).\n", "utf8");
+  await writeFile(
+    join(root, "concepts", "architecture(adr).md"),
+    "---\ntype: Concept\ntitle: Architecture ADR\n---\n\n# ADR\n\nSee details.\n",
+    "utf8",
+  );
+  await writeFile(
+    join(root, "concepts", "reader.md"),
+    "---\ntype: Concept\ntitle: Reader\n---\n\nSee [ADR](./architecture\\(adr\\).md).\n",
+    "utf8",
+  );
 
   const validation = await kb.validate();
   assert.deepEqual(validation.warnings, []);
@@ -193,7 +257,11 @@ test("validation handles escaped parentheses in markdown link destinations", asy
 test("validation treats protocol-relative markdown links as external links", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
-  await writeFile(join(root, "concepts", "external.md"), "---\ntype: Concept\n---\n\nSee [docs](//example.com/page).\n", "utf8");
+  await writeFile(
+    join(root, "concepts", "external.md"),
+    "---\ntype: Concept\n---\n\nSee [docs](//example.com/page).\n",
+    "utf8",
+  );
 
   const validation = await kb.validate();
   assert.deepEqual(validation.errors, []);
@@ -210,7 +278,11 @@ test("update preserves unknown OKF frontmatter fields on existing source concept
   await kb.ingest({ path: source });
   const conceptPath = join(root, "sources", "architecture.md");
   const concept = await readFile(conceptPath, "utf8");
-  await writeFile(conceptPath, concept.replace("type: Source Document\n", "type: Source Document\nowner: platform\n"), "utf8");
+  await writeFile(
+    conceptPath,
+    concept.replace("type: Source Document\n", "type: Source Document\nowner: platform\n"),
+    "utf8",
+  );
   await writeFile(source, "# Architecture\n\nSecond version.\n", "utf8");
 
   await kb.update({ path: source });
@@ -223,7 +295,11 @@ test("update preserves unknown OKF frontmatter fields on existing source concept
 test("validation treats missing type as error and broken links as warnings", async () => {
   const root = await tempRoot();
   const kb = await KnowledgeBase.create({ root });
-  await writeFile(join(root, "concepts", "bad.md"), "---\ntitle: Bad\n---\n\nSee [missing](/concepts/missing.md).\n", "utf8");
+  await writeFile(
+    join(root, "concepts", "bad.md"),
+    "---\ntitle: Bad\n---\n\nSee [missing](/concepts/missing.md).\n",
+    "utf8",
+  );
 
   const validation = await kb.validate();
   assert.equal(validation.valid, false);

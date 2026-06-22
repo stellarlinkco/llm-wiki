@@ -15,8 +15,8 @@ export class MarkdownSourceParser implements FormatParser {
     return ext === ".md" || ext === ".markdown" || ext === ".mdx";
   }
 
-  async parse(input: ResolvedParserInput): Promise<ParsedSource> {
+  parse(input: ResolvedParserInput): Promise<ParsedSource> {
     const title = input.title ?? extractTitle(input.content, input.path ?? sourceName(input));
-    return parsedMarkdown(input, this.name, title, input.content);
+    return Promise.resolve(parsedMarkdown(input, this.name, title, input.content));
   }
 }
